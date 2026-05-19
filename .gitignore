@@ -1,0 +1,11 @@
+.idea/
+.claude/
+.gradio/
+__pycache__/
+*.py[cod]
+*.db
+*.sqlite
+*.log
+models/*.pt
+models/*.pth
+inspection.db
