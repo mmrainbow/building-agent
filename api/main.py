@@ -1,17 +1,35 @@
 import os
 import tempfile
+from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from pydantic import BaseModel
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
-from agent.graph import build_agent
+from api.auth import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    get_current_user,
+    require_admin,
+)
+from api.schemas import (
+    HealthResponse,
+    InspectionResult,
+    LoginRequest,
+    RecordResponse,
+    RefreshRequest,
+    RegisterRequest,
+    StatisticsResponse,
+    TokenResponse,
+    UserResponse,
+)
 from db import (
-    SessionLocal,
     authenticate_user,
+    create_user,
     get_all_records,
     get_daily_inspection_count,
+    get_db,
     get_defect_type_distribution,
     get_material_distribution,
     get_overall_summary,
@@ -21,32 +39,33 @@ from db import (
     save_inspection,
 )
 
-app = FastAPI(title="Building Inspection API")
-security = HTTPBasic()
-agent = build_agent()
+# 懒加载: agent 在首次请求时才初始化，避免 import 时依赖 torch/YOLO
+# set_agent() 允许测试注入 mock，避免测试依赖真实模型文件
+_agent = None
 
 
-@app.on_event("startup")
-def startup() -> None:
+def get_agent():
+    global _agent
+    if _agent is None:
+        from agent.graph import build_agent
+
+        _agent = build_agent()
+    return _agent
+
+
+def set_agent(agent):
+    """注入 mock agent，仅供测试使用。"""
+    global _agent
+    _agent = agent
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     init_db()
+    yield
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-def get_current_user(
-    credentials: HTTPBasicCredentials = Depends(security),
-    db: Session = Depends(get_db),
-):
-    user = authenticate_user(db, credentials.username, credentials.password)
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid username or password")
-    return {"user_id": user.id, "username": user.username, "role": user.role.value}
+app = FastAPI(title="Building Inspection API", lifespan=lifespan)
 
 
 def _can_access_record(user: dict, record) -> bool:
@@ -71,13 +90,78 @@ def _record_to_dict(record) -> dict:
     }
 
 
-class InspectionResult(BaseModel):
-    report: str | None
-    material: str | None
-    floor: str | None
-    has_extension: str | None
-    defects: list[dict]
-    record_id: int | None
+# ── 认证端点 ──────────────────────────────────────────────
+
+
+@app.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+def register(body: RegisterRequest, db: Session = Depends(get_db)):
+    user = create_user(db, body.username, body.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="用户名已存在",
+        )
+    return UserResponse(id=user.id, username=user.username, role=user.role.value)
+
+
+# 双登录端点设计:
+#   /token — OAuth2 form 格式 (Swagger UI 的 Authorize 按钮使用)
+#   /login — JSON 格式 (curl/Postman/前端 fetch 使用)
+# 两者返回相同的 TokenResponse
+
+@app.post("/token", response_model=TokenResponse)
+def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
+    user = authenticate_user(db, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户名或密码错误",
+        )
+    role = user.role.value if hasattr(user.role, "value") else user.role
+    token_data = {"sub": str(user.id), "username": user.username, "role": role}
+    return TokenResponse(
+        access_token=create_access_token(token_data),
+        refresh_token=create_refresh_token(token_data),
+    )
+
+
+@app.post("/login", response_model=TokenResponse)
+def login_json(body: LoginRequest, db: Session = Depends(get_db)):
+    """JSON 格式登录接口，方便 API 客户端使用。"""
+    user = authenticate_user(db, body.username, body.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户名或密码错误",
+        )
+    role = user.role.value if hasattr(user.role, "value") else user.role
+    token_data = {"sub": str(user.id), "username": user.username, "role": role}
+    return TokenResponse(
+        access_token=create_access_token(token_data),
+        refresh_token=create_refresh_token(token_data),
+    )
+
+
+@app.post("/token/refresh", response_model=TokenResponse)
+def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
+    payload = decode_token(body.refresh_token)
+    if payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的刷新令牌",
+        )
+    user_id = int(payload["sub"])
+    user_data = {"sub": str(user_id), "username": payload["username"], "role": payload["role"]}
+    return TokenResponse(
+        access_token=create_access_token(user_data),
+        refresh_token=create_refresh_token(user_data),
+    )
+
+
+# ── 核心业务端点 ──────────────────────────────────────────
 
 
 @app.post("/predict", response_model=InspectionResult)
@@ -91,7 +175,7 @@ async def predict(
         tmp_path = tmp.name
 
     try:
-        result = agent.invoke({"image_path": tmp_path})
+        result = get_agent().invoke({"image_path": tmp_path})
         record = save_inspection(
             db=db,
             user_id=user["user_id"],
@@ -115,7 +199,7 @@ async def predict(
             os.unlink(tmp_path)
 
 
-@app.get("/history")
+@app.get("/history", response_model=list[RecordResponse])
 def history(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -129,7 +213,7 @@ def history(
     return [_record_to_dict(record) for record in records]
 
 
-@app.get("/history/{record_id}")
+@app.get("/history/{record_id}", response_model=RecordResponse)
 def record_detail(
     record_id: int,
     user: dict = Depends(get_current_user),
@@ -143,12 +227,89 @@ def record_detail(
     return _record_to_dict(record)
 
 
-@app.get("/statistics")
-def statistics(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+@app.get("/statistics", response_model=StatisticsResponse)
+def statistics(
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     query_user_id = None if user["role"] == "admin" else user["user_id"]
-    return {
-        "summary": get_overall_summary(db, query_user_id),
-        "defect_distribution": get_defect_type_distribution(db, query_user_id),
-        "material_distribution": get_material_distribution(db, query_user_id),
-        "daily_trend": get_daily_inspection_count(db, 30),
+    return StatisticsResponse(
+        summary=get_overall_summary(db, query_user_id),
+        defect_distribution=get_defect_type_distribution(db, query_user_id),
+        material_distribution=get_material_distribution(db, query_user_id),
+        daily_trend=get_daily_inspection_count(db, 30),
+    )
+
+
+# ── 管理端点 ──────────────────────────────────────────────
+
+
+@app.get("/admin/users", response_model=list[UserResponse])
+def list_users(
+    admin: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from db.models import User
+    users = db.query(User).all()
+    return [
+        UserResponse(
+            id=u.id,
+            username=u.username,
+            role=u.role.value if hasattr(u.role, "value") else u.role,
+        )
+        for u in users
+    ]
+
+
+# ── 健康检查 ──────────────────────────────────────────────
+
+
+@app.get("/health", response_model=HealthResponse)
+def health():
+    """健康检查 — 数据库连通性 + Ollama 可达性 + 模型文件完整性。
+
+    模型检查仅验证文件存在，不验证权重完整性（避免加载大文件）。
+    """
+    import requests as req
+    from sqlalchemy import text
+
+    model_dir = os.path.join(os.path.dirname(__file__), "..", "models")
+    required_models = [
+        "add_predict.pth",
+        "best.pt",
+        "main_building.pt",
+        "material.pth",
+        "outer_obj.pt",
+    ]
+    models_status = {
+        name: os.path.exists(os.path.join(model_dir, name))
+        for name in required_models
     }
+
+    db_status = "ok"
+    try:
+        db = next(get_db())
+        db.execute(text("SELECT 1"))
+    except Exception:
+        db_status = "unavailable"
+
+    ollama_status = "ok"
+    try:
+        ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        resp = req.get(f"{ollama_url}/api/tags", timeout=5)
+        if resp.status_code != 200:
+            ollama_status = "unavailable"
+    except Exception:
+        ollama_status = "unavailable"
+
+    overall = (
+        "ok"
+        if db_status == "ok" and ollama_status == "ok" and all(models_status.values())
+        else "degraded"
+    )
+    return HealthResponse(
+        status=overall,
+        database=db_status,
+        ollama=ollama_status,
+        models=models_status,
+    )
