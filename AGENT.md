@@ -1,22 +1,23 @@
 # AGENT.md — Building-Agent 项目上下文
 
 ## 项目简介
-AI 驱动的建筑外立面巡检系统。上传建筑图片 → CV 模型检测材质/楼层/加层/隐患 → Ollama LLM 生成中文巡检报告。
+AI 驱动的建筑外立面巡检系统。上传建筑图片 → CV 模型检测材质/楼层/加层/隐患 → 通义千问 LLM 生成中文巡检报告。
 
-技术栈: Python 3.10+, LangGraph, FastAPI, Gradio 4, SQLAlchemy 2, Ollama (qwen2:1.5b), YOLO (ultralytics), PyTorch, OpenCV
+技术栈: Python 3.10+, LangGraph, FastAPI, Gradio 4, SQLAlchemy 2, 通义千问 API (qwen-plus), YOLO (ultralytics), PyTorch, OpenCV, ChromaDB
 
 ## 项目结构
 ```
-agent/          LangGraph 工作流编排 (graph DAG, nodes, state)
+agent/          LangGraph 工作流 + ReAct Agent (orchestrator, memory_manager, graph/nodes/state)
 predictors/     CV模型预测器 (材质/楼层/加层/隐患) — 全部继承 BasePredictor
-db/             SQLAlchemy ORM (models 10表, database, crud, chat_crud, memory_crud, feedback_crud)
-api/            FastAPI REST 路由 (auth JWT, schemas Pydantic, main 端点)
+llm/            LLM 客户端 + Tool 封装 (通义千问 API, tools.py)
+db/             SQLAlchemy ORM (10表, database, crud, chat_crud, memory_crud, feedback_crud)
+api/            FastAPI REST 路由 (auth JWT, schemas, main, chat)
 services/       业务逻辑层 (auth, inspection, history, statistics, chat)
 app.py          Gradio Web UI 主入口 (146行，薄路由层)
 main.py         CLI 命令行入口
 models/         模型权重文件 (不纳入 Git)
 tests/          测试 (pytest + httpx, 35 个用例)
-knowledge/      知识库 RAG 模块 (规划中)
+knowledge/      知识库 RAG 模块 (ChromaDB 向量检索)
 ```
 
 ## 开发约定
@@ -38,6 +39,9 @@ OLLAMA_MODEL         模型名 (默认 qwen2:1.5b)
 INIT_ADMIN_USERNAME  初始管理员用户名
 INIT_ADMIN_PASSWORD  初始管理员密码 (仅首次启动时用于创建账号)
 JWT_SECRET_KEY       JWT 签名密钥 (生产环境必须修改)
+DASHSCOPE_API_KEY    通义千问 API 密钥
+LLM_MODEL            大模型名称 (默认 qwen-plus)
+LLM_BASE_URL         API 地址 (默认 https://dashscope.aliyuncs.com/compatible-mode/v1)
 ```
 
 ## 当前数据模型
@@ -105,7 +109,7 @@ GET  /health            数据库 + Ollama + 模型文件状态
 - `.env.example`           — 环境变量模板
 
 ## 当前开发阶段
-阶段 0.5 已完成（数据模型骨架：10 张表，对话/记忆/反馈/知识库 CRUD）。进入阶段 1A（反馈系统 API+UI）和 1B（知识库 ChromaDB 集成）。
+阶段 1.1-1.3 已完成 — llm/client.py (通义千问 API)、llm/tools.py (5 个 Tool)、agent/orchestrator.py (ReAct Agent)。下一步：1.5 Chat API (api/chat.py)，1.4 Memory+RAG 延后。
 
 ## 快速命令
 ```bash

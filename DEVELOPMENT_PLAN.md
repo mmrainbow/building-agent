@@ -10,12 +10,12 @@
 |------|------|---------|
 | 阶段0: 基础夯实 | **已完成** | 2026-05-26 |
 | 阶段0.5: 数据模型架构补强 | **已完成** | 2026-05-26 |
-| 阶段1A: 反馈系统 | 待开始 | — |
-| 阶段1B: 知识库 RAG | 待开始 | — |
-| 阶段1.5: 对话系统 (Chat+Memory) | 待开始 | — |
-| 阶段2: 多 Agent 协同 | 待开始 | — |
-| 阶段3: 服务化部署 | 待开始 | — |
-| 阶段4: 高级特性 | 待开始 | — |
+| 阶段1: Agent 框架 + RAG + 对话系统 | **进行中** | — |
+| 阶段2: 反馈系统 API+UI | 待开始 | — |
+| 阶段2: 反馈系统 | 待开始 | — |
+| 阶段3: 多 Agent 协同 | 待开始 | — |
+| 阶段4: 服务化部署 | 待开始 | — |
+| 阶段5: 前后端分离 (可选) | 待开始 | — |
 
 ---
 
@@ -423,52 +423,119 @@ POST   /api/chat/rag               # 基于知识库的问答 (已有 /api/chat�
 
 > **架构决策**: 记忆向量存储选 ChromaDB（阶段1B集成），当前用 SQLite LIKE 做关键词过渡检索；记忆提取方式选 LLM 自动提取（每轮对话后用小 prompt 提取关键事实）；对话存储选无限存储（全量持久化，30天/200条后可选摘要压缩）。
 
-### 阶段1A: 反馈系统 (1周, 1人)
+### 阶段1: Agent 框架 + RAG + 对话系统 (2-3周, 1-2人) 🔄 进行中
 
-**目标**: 建立数据飞轮和 AI 增强能力。
+**目标**: 通义千问 API 替代本地 Ollama，Predictor 封装为 Tool 让 AI 自主选择调用，打通 思维链 + Memory + RAG。
 
-**阶段1A 任务** — 1人 (表结构 + CRUD 已在阶段0.5完成):
-- [ ] **Feedback API** — `api/feedback.py`: POST/GET 反馈，GET 统计 — **复杂度: 中, 可 CC**
-- [ ] **Gradio 反馈 UI** — 在报告详情页增加 "纠错" 按钮和 1-5 星评分组件 — **复杂度: 中, 可 CC**
-- [ ] **数据集导出 API** — `GET /feedback/export` 返回 JSONL 格式微调数据集 — **复杂度: 中, 可 CC**
+#### 核心架构决策
 
-### 阶段1B: 知识库 RAG (1周, 1人)
+| 决策点 | 选择 | 理由 |
+|--------|------|------|
+| LLM 服务 | 通义千问 API (qwen-plus) | 免费额度，OpenAI 兼容，原生 function calling |
+| Tool 调度 | LLM 自主决策 (ReAct 循环) | 替代静态 DAG，AI 根据图像内容选择调用哪些工具 |
+| Embedding | 通义千问 text-embedding-v4 | 与 LLM 同平台，免费额度充足 |
+| Agent 框架 | 自建 ReAct + LangGraph State | 轻量可控，无需引入 LangChain Agent |
 
-**目标**: ChromaDB 全文向量检索 + 文档摄入管线。
+#### Agent 执行流程
 
-- [ ] **ChromaDB 集成** — `knowledge/vector_store.py`: 初始化 ChromaDB Collection，配置 Ollama embedding — **复杂度: 中, 可 CC**
-- [ ] **文档摄入管线** — `knowledge/loader.py` + `knowledge/embedding.py`: PDF/MD/TXT 解析→分块→向量化→入库 — **复杂度: 中, 可 CC**
-- [ ] **检索接口** — `knowledge/retriever.py`: 语义检索 + 元数据过滤 — **复杂度: 中, 可 CC**
-- [ ] **Knowledge API** — `api/knowledge.py`: 上传/删除/搜索文档 — **复杂度: 中, 可 CC**
-- [ ] **记忆迁移至 ChromaDB** — 将 `ConversationMemory` 的关键词检索升级为 ChromaDB 向量检索 — **复杂度: 中, 可 CC**
+```
+用户发送图片 + 问题
+        │
+        ▼
+┌─────────────────────────────────────────────┐
+│            MemoryManager                     │
+│  1. 组装上下文                               │
+│     ├── 短期: 最近 20 条对话消息              │
+│     ├── 长期: ConversationMemory 关键词检索   │
+│     └── RAG:  ChromaDB 知识库检索            │
+└──────────────┬──────────────────────────────┘
+               │ messages + tools
+               ▼
+┌─────────────────────────────────────────────┐
+│           AgentOrchestrator (ReAct)          │
+│                                              │
+│  ┌─── LLM 决定 ──▶ 调用 Tool ──▶ 返回结果 ──┐│
+│  │                                          ││
+│  └──── 循环直到 LLM 生成最终回答 ◀───────────┘│
+│                                              │
+│  可用 Tools:                                  │
+│  - classify_material  (材质识别)              │
+│  - estimate_floors     (楼层估算)              │
+│  - detect_extension    (加层检测)              │
+│  - detect_defects      (隐患检测)              │
+│  - search_knowledge    (知识库检索)            │
+└──────────────┬──────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────┐
+│            后处理                             │
+│  ├── 保存消息到 ChatMessage                    │
+│  ├── 自动提取记忆 → ConversationMemory        │
+│  └── 返回 AI 回复 + tool_call_log             │
+└─────────────────────────────────────────────┘
+```
 
-> **架构决策点**: Embedding 模型 — 选 Ollama `nomic-embed-text` (本地免费零延迟)。
+#### 新增目录
 
-### 阶段1.5: 对话系统 Chat+Memory (1.5周, 1人)
+```
+llm/                    # 新增: LLM 客户端 + Tool 封装
+├── __init__.py
+├── client.py           # 通义千问 API (OpenAI 兼容)
+└── tools.py            # 4个 Predictor → Tool 封装 + search_knowledge
 
-**目标**: 实现完整的多轮对话 API 和自动记忆管理。
+agent/
+├── orchestrator.py     # 新增: ReAct Agent 主循环
+├── memory_manager.py   # 新增: 三层上下文检索 + 记忆提取
+├── graph.py            # 保留: 原有 DAG (CLI 兼容)
+├── nodes.py / state.py # 保留
 
-- [ ] **Chat API** — `POST /chat/send` (发送消息, 返回回复), `GET /chat/conversations` (对话列表), `GET /chat/conversations/{id}` (对话详情), `DELETE /chat/conversations/{id}` — **复杂度: 中, 可 CC**
-- [ ] **MemoryManager 服务** — `services/memory_service.py`: 编排三层检索 (短期消息+长期记忆+知识库) → 组装上下文 → 调用 LLM → 自动提取新记忆 — **复杂度: 高, 可 CC**
-- [ ] **记忆自动提取** — 每轮对话后用 LLM 提取关键事实 (user_fact/building_info/preference) → upsert 到 ConversationMemory + ChromaDB — **复杂度: 高, 可 CC**
-- [ ] **Gradio 对话 UI 升级** — 支持多轮对话、对话历史列表、新建/切换/删除对话 — **复杂度: 中, 可 CC**
+api/
+├── chat.py             # 新增: Chat API 路由
+```
 
-> **架构决策点**: 短期记忆窗口大小 — 默认最近 20 条消息 + 长期记忆 top_k=5 + 知识库 top_k=3。
+#### 任务清单
 
-### 阶段2: 多 Agent 协同 (2-3周, 1-2人)
+**1.1 LLM 客户端 (0.5天)** ✅
+- [x] **通义千问 API 客户端** — `llm/client.py`: `chat(messages, tools)` + `chat_with_tools()` ReAct 自动循环 — **复杂度: 低, 可 CC**
+- [x] **环境变量** — `DASHSCOPE_API_KEY`, `LLM_MODEL` (默认 qwen-plus), `LLM_BASE_URL` — **复杂度: 低, 可 CC**
 
-**目标**: 从单体 Agent 演进到协作式多 Agent 系统。
+**1.2 Tool 封装 (0.5天)** ✅
+- [x] **Predictor → Tool 适配器** — `llm/tools.py`: 4 个 Predictor 包装为 Function Call schema + executor (延迟加载) + DefectToolWrapper 中文格式化 — **复杂度: 中, 可 CC**
+- [x] **知识库检索 Tool** — `search_knowledge(query)` → SQLite LIKE 过渡 — **复杂度: 中, 可 CC**
+
+**1.3 Agent 编排 (1天)** ✅
+- [x] **ReAct 循环** — `agent/orchestrator.py`: InspectionAgent 类，上下文组装 → LLM 调用 → tool_calls 执行 → 持久化消息 — **复杂度: 高, 可 CC**
+- [x] **System Prompt** — 建筑巡检专家角色 + 5 个工具说明 + 使用原则 + 输出格式 — **复杂度: 中, 可 CC**
+- [x] **Tool 调用日志** — 记录 name/input/output/elapsed_ms 到 ChatMessage.metadata — **复杂度: 低, 可 CC**
+
+**1.4 Memory + RAG (1天)** ⏸ 延后
+- [ ] **MemoryManager** — `agent/memory_manager.py`: 三层检索 + 上下文组装 + 记忆自动提取
+- [ ] **记忆提取** — LLM 识别关键事实 → upsert 到 ConversationMemory
+- [ ] **ChromaDB 集成** — `knowledge/vector_store.py`: embedding → 向量写入/检索
+
+**1.5 Chat API (0.5天)**
+- [ ] **对话端点** — `api/chat.py`: POST `/chat/send` (支持图片), GET `/chat/conversations`, GET/DELETE `/chat/conversations/{id}` — **复杂度: 中, 可 CC**
+
+**1.6 集成验证 (0.5天)**
+- [ ] **端到端测试** — 发图片 → AI 自主选择 Tool → 返回报告，验证 tool_call_log — **复杂度: 中, 可 CC**
+- [ ] **Gradio 对话 Tab 升级** — 接入 Chat API，支持对话历史切换 — **复杂度: 中, 可 CC**
+
+> **架构决策**: ReAct 最大循环 10 次防死循环；Tool 超时 30s；短期记忆窗口 20 条消息；长期记忆 top_k=5；RAG top_k=3。Memory+RAG 延后到 API 调通后再做，先用 orchestrator 内置的简单历史消息注入。
+
+**目标**: 收集用户纠错和评分数据，建立数据飞轮。
+
+- [ ] **Feedback API** — `api/feedback.py`: POST/GET 反馈，GET 统计 (表 + CRUD 已在 0.5) — **复杂度: 中, 可 CC**
+- [ ] **Gradio 反馈 UI** — 报告详情 + 对话消息旁增加纠错/评分 — **复杂度: 中, 可 CC**
+
+### 阶段3: 多 Agent 协同 (2-3周, 1-2人)
+
+**目标**: 从单 ReAct Agent 演进到主控+专项 Agent 协作。
 
 - [ ] **Agent 注册中心** — `agent/registry.py`: Agent 注册/发现/调度 — **复杂度: 中, 可 CC**
 - [ ] **Agent 通信协议** — `agent/protocol.py`: 标准化消息格式 — **复杂度: 低, 可 CC**
-- [ ] **Orchestrator Agent** — `agent/orchestrator.py`: 任务分解和 Agent 调度 — **复杂度: 高, 可 CC**
-- [ ] **Agent 化改造** — 将现有 5 个检测节点包装为独立 Agent (MaterialAgent, FloorAgent, ExtensionAgent, DefectAgent, ReportAgent) — **复杂度: 中, 可 CC**
-- [ ] **新增 ReviewAgent** — 专门审核其他 Agent 输出的 Agent，基于知识库规则检查报告一致性 — **复杂度: 高, 可 CC**
-- [ ] **Agent 协作日志** — 记录每次 Agent 调用的输入/输出/耗时，用于调试和性能分析 — **复杂度: 低, 可 CC**
+- [ ] **ReviewAgent** — 审核其他 Agent 输出，基于知识库检查报告一致性 — **复杂度: 高, 可 CC**
 
-> **架构决策点**: Agent 调度策略 — 选项A: 静态 DAG (现有 LangGraph, 确定性); 选项B: 动态 LLM 调度 (根据图像内容决定触发哪些 Agent, 灵活性高)。本项目选 A→B 渐进，先用静态 DAG 保证稳定性，后在 Orchestrator 中引入 LLM 动态决策。
-
-### 阶段3: 服务化部署 (2-3周, 1-2人)
+### 阶段4: 服务化部署 (1-2周, 1人)
 
 **目标**: 支撑团队协作和实际部署。
 
@@ -479,7 +546,7 @@ POST   /api/chat/rag               # 基于知识库的问答 (已有 /api/chat�
 - [ ] **模型管理脚本** — `scripts/download_models.sh`: 自动从远程拉取模型权重 — **复杂度: 低, 可 CC**
 - [ ] **启动自检脚本** — `scripts/healthcheck.py`: 数据库/模型文件/Ollama 完整性检查 — **复杂度: 低, 可 CC**
 
-### 阶段4: 高级特性 (按需, 持续)
+### 阶段5: 前后端分离 + 高级特性 (按需)
 
 **目标**: 增强系统能力和用户体验。
 
