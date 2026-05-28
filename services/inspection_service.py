@@ -104,5 +104,6 @@ def inspect_and_save(image, user_state):
         "last_has_extension": result["has_extension"],
         "last_defects": result["defects"],
         "last_report": result["report"],
+        "last_image": image,
     }
     return result["annotated"], result["report"], next_state
