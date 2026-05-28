@@ -34,8 +34,11 @@ def load_history(user_state):
         db.close()
 
 
-def show_record_detail(history_df, evt):
-    if history_df is None or history_df.empty or evt is None or evt.index is None:
+def show_record_detail(history_df, evt=None):
+    """Gradio 6 的 Dataframe.select 有时只传入 DataFrame，evt 由框架作为第二参数注入。"""
+    if history_df is None or (hasattr(history_df, "empty") and history_df.empty):
+        return "", pd.DataFrame(), None
+    if evt is None or evt.index is None:
         return "", pd.DataFrame(), None
 
     row_index = evt.index[0] if isinstance(evt.index, tuple) else evt.index

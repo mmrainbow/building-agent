@@ -1,3 +1,10 @@
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# 必须在 import services/db 之前加载，否则 INSPECTION_DB_URL 等已在 import 时固化
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 import gradio as gr
 
 from services import (
@@ -125,20 +132,24 @@ with gr.Blocks(title=TEXT["title"]) as demo:
                 )
                 clear.click(lambda: [], None, chatbot, queue=False)
 
+    # 认证操作不走队列，避免被「开始巡检」等耗时任务堵住导致登录一直 heartbeat
     login_btn.click(
         fn=handle_login,
         inputs=[login_user, login_pass],
         outputs=[login_msg, session_state, login_block, main_block],
+        queue=False,
     )
     reg_btn.click(
         fn=handle_register,
         inputs=[reg_user, reg_pass, reg_pass2],
         outputs=[reg_msg],
+        queue=False,
     )
     logout_btn.click(
         fn=do_logout,
         inputs=[],
         outputs=[session_state, login_block, main_block],
+        queue=False,
     )
 
 
