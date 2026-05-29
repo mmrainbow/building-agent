@@ -1,6 +1,14 @@
 from langgraph.graph import StateGraph, END
 from .state import InspectionState
-from .nodes import load_image_node, material_node, floor_node, extension_node, defect_node, report_node
+from .nodes import (
+    load_image_node,
+    material_node,
+    floor_node,
+    extension_node,
+    defect_node,
+    rag_node,
+    report_node,
+)
 
 
 def build_agent():
@@ -11,6 +19,7 @@ def build_agent():
     workflow.add_node("floor", floor_node)
     workflow.add_node("extension", extension_node)
     workflow.add_node("defect", defect_node)
+    workflow.add_node("rag", rag_node)
     workflow.add_node("report", report_node)
 
     # 先加载图像，再并行执行 4 个独立检测
@@ -20,11 +29,12 @@ def build_agent():
     workflow.add_edge("load_image", "extension")
     workflow.add_edge("load_image", "defect")
 
-    # 所有检测完成后汇总到报告节点
-    workflow.add_edge("material", "report")
-    workflow.add_edge("floor", "report")
-    workflow.add_edge("extension", "report")
-    workflow.add_edge("defect", "report")
+    # 所有检测完成后先做 RAG 检索，再汇总到报告节点
+    workflow.add_edge("material", "rag")
+    workflow.add_edge("floor", "rag")
+    workflow.add_edge("extension", "rag")
+    workflow.add_edge("defect", "rag")
+    workflow.add_edge("rag", "report")
     workflow.add_edge("report", END)
 
     return workflow.compile()

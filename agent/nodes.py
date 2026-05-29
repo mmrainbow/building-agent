@@ -3,6 +3,7 @@ from pathlib import Path
 
 import cv2
 import requests
+from dotenv import load_dotenv
 
 from predictors.added_floor import AddedFloorPredictor
 from predictors.floor import FloorPredictor
@@ -10,9 +11,13 @@ from predictors.hidden_danger import HiddenDangerPredictor
 from predictors.material import MaterialPredictor
 
 from .state import InspectionState
+from .rag import load_vectorstore, retrieve_regulations
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2:1.5b")
+load_dotenv()
+
+LLM_API_KEY = os.getenv("LLM_API_KEY", "sk-your-api-key-here")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+LLM_MODEL = os.getenv("LLM_MODEL", "qwen-turbo")
 MODEL_DIR = Path(__file__).parent.parent / "models"
 
 _floor = FloorPredictor(MODEL_DIR / "main_building.pt", MODEL_DIR / "outer_obj.pt")
@@ -68,6 +73,23 @@ def defect_node(state: InspectionState):
         return {"error": f"Defect detection failed: {e}"}
 
 
+def rag_node(state: InspectionState):
+    try:
+        vs = load_vectorstore()
+        regs = retrieve_regulations(
+            vs,
+            material=state.get("material", "未知"),
+            defects=state.get("defects", []) or [],
+            floor=state.get("floor", "未知"),
+            has_extension=state.get("has_extension", "未知"),
+        )
+        return {"regulations": regs}
+    except Exception as e:
+        # 终极兜底：完全失败时返回空字符串
+        print(f"[RAG Node] 检索失败：{e}")
+        return {"regulations": ""}
+
+
 def report_node(state: InspectionState):
     defects = state.get("defects", []) or []
     if defects:
@@ -77,13 +99,38 @@ def report_node(state: InspectionState):
     else:
         defects_desc = "- No obvious defects found"
 
-    prompt = f"""
-Generate a concise professional building inspection report in Chinese.
+    material = state.get('material', 'Unknown')
+    floor = state.get('floor', 'Unknown')
+    extension = state.get('has_extension', 'Unknown')
+    regulations = state.get('regulations', '')
+
+    # 有 RAG 规范的 prompt
+    prompt_with_rag = f"""Generate a concise professional building inspection report in Chinese.
 
 Detection result:
-- Material: {state.get('material', 'Unknown')}
-- Estimated floors: {state.get('floor', 'Unknown')}
-- Extension: {state.get('has_extension', 'Unknown')}
+- Material: {material}
+- Estimated floors: {floor}
+- Extension: {extension}
+- Defects:
+{defects_desc}
+
+Reference regulations:
+{regulations if regulations else '暂无可用规范引用。'}
+
+Requirements:
+- Keep the report objective and concise.
+- Around 120-180 Chinese characters.
+- Refer to defects by sequence number only.
+- Cite relevant regulation clauses when applicable.
+"""
+
+    # 无 RAG 规范的 prompt
+    prompt_no_rag = f"""Generate a concise professional building inspection report in Chinese.
+
+Detection result:
+- Material: {material}
+- Estimated floors: {floor}
+- Extension: {extension}
 - Defects:
 {defects_desc}
 
@@ -91,37 +138,53 @@ Requirements:
 - Keep the report objective and concise.
 - Around 120-180 Chinese characters.
 - Refer to defects by sequence number only.
+- Do NOT mention any regulations or standards.
 """
 
-    try:
-        response = requests.post(
-            f"{OLLAMA_BASE_URL}/api/generate",
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "options": {"temperature": 0.3},
-            },
-            timeout=60,
+    def _call_llm(prompt_text: str) -> str:
+        try:
+            response = requests.post(
+                f"{LLM_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {LLM_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": LLM_MODEL,
+                    "messages": [
+                        {"role": "system", "content": "你是一名专业的建筑结构检测工程师，请根据检测数据生成客观、简洁的中文检测报告。"},
+                        {"role": "user", "content": prompt_text},
+                    ],
+                    "temperature": 0.3,
+                },
+                timeout=60,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return data["choices"][0]["message"]["content"].strip()
+            return f"[LLM HTTP {response.status_code}]"
+        except Exception as e:
+            return f"[LLM Error: {e}]"
+
+    report_with_rag = _call_llm(prompt_with_rag)
+    report_no_rag = _call_llm(prompt_no_rag)
+
+    # fallback：如果 LLM 都失败了
+    if report_with_rag.startswith("[LLM"):
+        report_with_rag = (
+            f"LLM call failed.\n"
+            f"Material: {material}\nFloor: {floor}\nExtension: {extension}\n"
+            f"Defect count: {len(defects)}\n"
+            f"Regulations: {regulations}"
         )
-        if response.status_code == 200:
-            report = response.json().get("response", "").strip()
-            if report:
-                return {"report": report}
-        fallback = (
-            f"LLM call failed (HTTP {response.status_code}).\n"
-            f"Material: {state.get('material')}\n"
-            f"Floor: {state.get('floor')}\n"
-            f"Extension: {state.get('has_extension')}\n"
+    if report_no_rag.startswith("[LLM"):
+        report_no_rag = (
+            f"LLM call failed.\n"
+            f"Material: {material}\nFloor: {floor}\nExtension: {extension}\n"
             f"Defect count: {len(defects)}"
         )
-        return {"report": fallback}
-    except Exception as e:
-        fallback = (
-            f"LLM call failed: {e}\n"
-            f"Material: {state.get('material')}\n"
-            f"Floor: {state.get('floor')}\n"
-            f"Extension: {state.get('has_extension')}\n"
-            f"Defect count: {len(defects)}"
-        )
-        return {"report": fallback}
+
+    return {
+        "report": report_with_rag,
+        "report_no_rag": report_no_rag,
+    }

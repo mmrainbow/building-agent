@@ -60,6 +60,7 @@ def do_inspect(image):
         return {
             "annotated": draw_defects(image, result.get("defects", [])),
             "report": result.get("report", TEXT["no_report"]),
+            "report_no_rag": result.get("report_no_rag", ""),
             "material": result.get("material", ""),
             "floor": result.get("floor", ""),
             "has_extension": result.get("has_extension", ""),
@@ -104,5 +105,16 @@ def inspect_and_save(image, user_state):
         "last_has_extension": result["has_extension"],
         "last_defects": result["defects"],
         "last_report": result["report"],
+        "last_report_no_rag": result.get("report_no_rag", ""),
     }
-    return result["annotated"], result["report"], next_state
+    # 拼接两份报告供前端显示
+    report_no_rag = result.get("report_no_rag", "")
+    if report_no_rag:
+        combined_report = (
+            f"### ✅ 有 RAG 规范引用的报告\n\n{result['report']}\n\n"
+            f"---\n\n"
+            f"### ❌ 无 RAG 规范引用的报告\n\n{report_no_rag}"
+        )
+    else:
+        combined_report = result["report"]
+    return result["annotated"], combined_report, next_state
