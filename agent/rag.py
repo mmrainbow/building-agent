@@ -187,87 +187,6 @@ def load_vectorstore() -> Chroma | None:
         return None
 
 
-# ─── 内置规则知识库 ────────────────────────────────────────────────
-_BUILTIN = {
-    "混凝土": [
-        "GB/T 50344-2019 第5.2节：混凝土结构检测应包括混凝土强度、碳化深度、保护层厚度、裂缝、变形等项目。",
-        "GB/T 50344-2019 第5.2.3条：混凝土抗压强度检测可采用回弹法、超声回弹综合法、钻芯法等方法。",
-        "GB/T 50344-2019 第5.2.6条：混凝土裂缝检测应记录裂缝的位置、形态、长度、宽度和深度。",
-        "GB/T 50344-2019 第5.2.8条：混凝土构件变形检测包括挠度和倾斜。",
-    ],
-    "砌体": [
-        "GB/T 50344-2019 第5.3节：砌体结构检测应包括砌筑块材强度、砌筑砂浆强度、砌体裂缝、变形等项目。",
-        "GB/T 50344-2019 第5.3.2条：砌筑砂浆强度检测可采用回弹法、贯入法、筒压法等方法。",
-        "GB/T 50344-2019 第5.3.5条：砌体裂缝检测应区分受力裂缝和非受力裂缝。",
-    ],
-    "钢结构": [
-        "GB/T 50344-2019 第5.4节：钢结构检测应包括钢材厚度、焊缝质量、涂层厚度、变形与损伤等项目。",
-        "GB/T 50344-2019 第5.4.3条：焊缝质量检测可采用超声波检测、射线检测、磁粉检测等方法。",
-        "GB/T 50344-2019 第5.4.6条：钢结构防腐和防火涂层厚度应满足设计要求和相关规范规定。",
-    ],
-    "木结构": [
-        "GB/T 50344-2019 第5.5节：木结构检测应包括木材材质、连接节点、变形与损伤、腐朽与虫蛀等项目。",
-    ],
-    "裂缝": [
-        "GB/T 50344-2019 第6.2节：裂缝检测应记录其位置、形态、走向、长度、宽度和深度。",
-        "GB/T 50344-2019 第6.2.3条：一般混凝土结构裂缝宽度限值为0.2~0.4mm。",
-    ],
-    "变形": [
-        "GB/T 50344-2019 第6.3节：结构变形检测包括水平位移、竖向变形（挠度）、倾斜等。",
-        "GB/T 50344-2019 第6.3.4条：构件挠度检测值不应超过计算跨度的1/200~1/400。",
-    ],
-    "加层": [
-        "GB/T 50344-2019 第3.1.3条：当建筑物进行加层、改造或用途变更时，应进行结构检测鉴定。",
-        "GB/T 50344-2019 第7.3节：既有建筑加层改造前，应对地基基础和上部结构进行全面检测。",
-        "GB/T 50344-2019 第7.3.2条：加层改造应重点关注基础承载力、竖向构件承载力和结构整体稳定性。",
-    ],
-    "通用": [
-        "GB/T 50344-2019 第3.1.1条：建筑结构检测应遵循先调查后检测、从整体到局部、从表观到内在的原则。",
-        "GB/T 50344-2019 第3.4.1条：检测报告应包含工程概况、检测目的和依据、检测方法和仪器、检测数据和分析、检测结论和建议。",
-        "GB/T 50344-2019 第7.1.1条：结构安全性评定应综合考虑承载能力、结构整体稳固性和结构耐久性。",
-    ],
-}
-
-_KEYWORDS = {
-    "混凝土": "混凝土", "砌体": "砌体", "砖混": "砌体", "砖": "砌体",
-    "钢": "钢结构", "木": "木结构",
-    "裂缝": "裂缝", "裂纹": "裂缝",
-    "变形": "变形", "倾斜": "变形", "挠度": "变形",
-    "加层": "加层", "扩建": "加层", "改造": "加层",
-}
-
-
-def _retrieve_builtin(material: str, defects: list[dict], has_extension: str, max_items: int = 5) -> str:
-    matched = set()
-    material_lower = material.lower() if material else ""
-    for kw, cat in _KEYWORDS.items():
-        if kw in material_lower:
-            matched.add(cat)
-    for d in (defects or []):
-        dtype = d.get("type", "").lower() if isinstance(d, dict) else ""
-        for kw, cat in _KEYWORDS.items():
-            if kw in dtype:
-                matched.add(cat)
-    if has_extension and has_extension != "无加层" and has_extension != "Unknown":
-        matched.add("加层")
-
-    seen = set()
-    items = []
-    for cat in matched:
-        for item in _BUILTIN.get(cat, []):
-            if item not in seen:
-                seen.add(item)
-                items.append(item)
-                if len(items) >= max_items:
-                    break
-        if len(items) >= max_items:
-            break
-    if not items:
-        items = _BUILTIN["通用"][:max_items]
-
-    return "\n\n".join(f"【参考规范 {i}】{item}" for i, item in enumerate(items, 1))
-
-
 # ─── 检索入口 ─────────────────────────────────────────────────────
 def retrieve_regulations(
     vectorstore: Optional[Chroma],
@@ -275,36 +194,100 @@ def retrieve_regulations(
     defects: list[dict],
     floor: str,
     has_extension: str,
-    k: int = 3,
+    k: int = 5,
 ) -> str:
-    """
-    检索相关规范条文。优先向量库检索，不可用时降级到内置规则库。
-    """
-    # 路径1：向量库检索
-    if vectorstore is not None:
-        try:
-            if defects:
-                descs = [f"{d.get('type','')}(面积{d.get('area',0):.0f}px)" for d in defects]
-                defect_kw = "、".join(descs)
-            else:
-                defect_kw = "无明显缺陷"
+    """多维度检索 + 去重 + 重排序，返回更丰富的规范条文。"""
+    if vectorstore is None:
+        print("[RAG] 向量库不可用")
+        return ""
 
-            query = f"{material}结构建筑，{floor}层，隐患：{defect_kw}，检测标准与评级"
-            if has_extension and has_extension != "无加层":
-                query += "，存在加层情况"
+    try:
+        # 1. 构建多维度查询
+        queries = _build_queries(material, defects, floor, has_extension)
 
-            docs = vectorstore.similarity_search(query, k=k)
-            if docs:
-                items = []
-                for i, doc in enumerate(docs, 1):
-                    c = doc.page_content.strip()
-                    if c:
-                        items.append(f"【参考规范 {i}】{c}")
-                if items:
-                    return "\n\n".join(items)
-        except Exception as e:
-            print(f"[RAG] 向量检索失败：{e}，降级到内置规则库")
+        # 2. 多路检索 + 去重
+        seen = set()
+        all_docs = []
+        for q in queries:
+            docs = vectorstore.similarity_search(q, k=k)
+            for doc in docs:
+                key = doc.page_content.strip()[:80]  # 用前 80 字做去重标识
+                if key not in seen:
+                    seen.add(key)
+                    all_docs.append(doc)
 
-    # 路径2：内置规则库
-    print("[RAG] 使用内置规则知识库")
-    return _retrieve_builtin(material=material, defects=defects or [], has_extension=has_extension)
+        if not all_docs:
+            print("[RAG] 未检索到相关规范")
+            return ""
+
+        # 3. 按检索先后排列（多查询自然形成优先级），保留最多 2k 条
+        all_docs = all_docs[:2 * k]
+
+        # 4. 格式化输出：带元数据
+        items = []
+        for i, doc in enumerate(all_docs, 1):
+            c = doc.page_content.strip()
+            if not c:
+                continue
+            meta = doc.metadata
+            source_info = ""
+            if meta.get("para"):
+                source_info = f" [第{meta['para']}段]"
+            elif meta.get("page"):
+                source_info = f" [第{meta['page']}页]"
+            items.append(f"【参考规范 {i}{source_info}】{c}")
+
+        print(f"[RAG] 检索到 {len(items)} 条规范条文（去重后）")
+        return "\n\n".join(items)
+
+    except Exception as e:
+        print(f"[RAG] 向量检索失败：{e}")
+        return ""
+
+
+def _build_queries(material: str, defects: list[dict], floor: str, has_extension: str) -> list[str]:
+    """根据检测结果构建多个维度的检索查询，多角度覆盖规范条文。"""
+    queries = []
+
+    # 1. 材料 + 结构类型
+    queries.append(f"{material}结构建筑 检测标准 技术规范 评级评定")
+
+    # 2. 按缺陷类型分别检索
+    if defects:
+        defect_types = list(set(d.get("type", "") for d in defects if d.get("type")))
+        for dt in defect_types:
+            queries.append(f"建筑结构 {dt} 缺陷检测 评定标准 规范要求")
+        # 综合缺陷检索
+        descs = [f"{d.get('type','')}" for d in defects]
+        queries.append(f"建筑结构 {'、'.join(descs[:3])} 缺陷等级 安全评估 规范")
+    else:
+        queries.append("建筑结构 完好 无明显缺陷 检测评定")
+
+    # 3. 楼层相关
+    floor_num = _parse_floor_num(floor)
+    if floor_num:
+        if floor_num <= 3:
+            queries.append(f"低层建筑 多层建筑 {floor_num}层 结构检测 规范要求")
+        elif floor_num <= 7:
+            queries.append(f"多层建筑 {floor_num}层 结构检测 技术标准")
+        elif floor_num <= 30:
+            queries.append(f"高层建筑 {floor_num}层 结构安全 检测规范")
+        else:
+            queries.append(f"超高层建筑 {floor_num}层 结构检测 技术标准")
+
+    # 4. 加层/改建
+    if has_extension and has_extension not in ("无加层", "Unknown", "未知"):
+        queries.append("建筑加层 改建 结构安全性检测 规范标准")
+        queries.append("既有建筑 加层改造 承载能力评定 检测要求")
+
+    # 5. 通用检测标准
+    queries.append("建筑结构检测 评定等级 安全分类 规范条文")
+
+    return queries
+
+
+def _parse_floor_num(floor: str) -> int:
+    """从楼层字符串中提取数字。"""
+    import re
+    match = re.search(r'(\d+)', str(floor))
+    return int(match.group(1)) if match else 0

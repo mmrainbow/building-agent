@@ -105,7 +105,7 @@ def report_node(state: InspectionState):
     regulations = state.get('regulations', '')
 
     # 有 RAG 规范的 prompt
-    prompt_with_rag = f"""Generate a concise professional building inspection report in Chinese.
+    prompt_with_rag = f"""Generate a professional building inspection report in Chinese. Follow the format strictly.
 
 Detection result:
 - Material: {material}
@@ -117,15 +117,20 @@ Detection result:
 Reference regulations:
 {regulations if regulations else '暂无可用规范引用。'}
 
-Requirements:
-- Keep the report objective and concise.
-- Around 120-180 Chinese characters.
-- Refer to defects by sequence number only.
-- Cite relevant regulation clauses when applicable.
+Report format requirements:
+1. [检测概况] 简述建筑基本信息（材料、层数、加层情况）。
+2. [缺陷分析] 逐个分析每个缺陷的严重程度，引用相关规范条文（标注规范编号）。
+3. [综合评定] 根据规范给出结构安全等级评定（A/B/C/D级）及依据。
+4. [处理建议] 给出具体可操作的处理建议。
+
+Style:
+- 保持客观专业，语言简洁。
+- 约 200-300 字。
+- 必须引用至少 1 条规范条文。
 """
 
     # 无 RAG 规范的 prompt
-    prompt_no_rag = f"""Generate a concise professional building inspection report in Chinese.
+    prompt_no_rag = f"""Generate a professional building inspection report in Chinese. Follow the format strictly.
 
 Detection result:
 - Material: {material}
@@ -134,11 +139,16 @@ Detection result:
 - Defects:
 {defects_desc}
 
-Requirements:
-- Keep the report objective and concise.
-- Around 120-180 Chinese characters.
-- Refer to defects by sequence number only.
-- Do NOT mention any regulations or standards.
+Report format requirements:
+1. [检测概况] 简述建筑基本信息（材料、层数、加层情况）。
+2. [缺陷分析] 逐个分析每个缺陷的严重程度（基于常识判断）。
+3. [综合评定] 给出结构安全等级评定（A/B/C/D级）及常识依据。
+4. [处理建议] 给出具体可操作的处理建议。
+
+Style:
+- 保持客观专业，语言简洁。
+- 约 200-300 字。
+- 不要引用任何规范或标准条文。
 """
 
     def _call_llm(prompt_text: str) -> str:
