@@ -524,8 +524,11 @@ api/
 - [x] **记忆隔离** — 长期记忆从全局共享改为按对话隔离（`conversation_id` 过滤检索和 upsert）
 - [x] **防重复 Tool 调用** — `_history_to_messages` 保留 tool role，不伪装成 user
 - [x] **Gradio 对话列表侧栏** — 左侧列表显示历史对话，点击切换，支持新建/删除
-- [x] **对话图片持久化** — `chat_messages.image_path` 列 + `chat_images/` 本地存储，重开对话可查看已上传图片
+- [x] **对话图片持久化** — `chat_images` 表 (BLOB 入库) + 缓存文件渲染，项目移动不丢数据
+- [x] **巡检表重构** — `InspectionRecord` 拆出 `ImageInspection` (图片级检测结果)，`Defect.record_id` → `Defect.image_id`
+- [x] **图片不存两份** — `image_inspection.chat_image_id` FK→`chat_images`，巡检对话复用同一张图片
 - [x] **默认角色重命名** — `UserRole.inspector` → `UserRole.user`（普通用户）
+- [x] **数据模型总览** — 12 张表，`db/SCHEMA.md` 全量文档
 
 > **架构决策**: ReAct 最大循环 10 次防死循环；Tool 超时 30s；短期记忆窗口 20 条消息；长期记忆 top_k=5；RAG top_k=3。
 

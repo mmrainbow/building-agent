@@ -61,13 +61,15 @@ INIT_ADMIN_PASSWORD  初始管理员密码
 OLLAMA_BASE_URL      Ollama 地址 (旧路径兼容)
 ```
 
-## 当前数据模型
+## 当前数据模型 (12 张表)
 - **User**: id, username, password_hash, role, is_active, created_at, last_login_at
 - **UserPreference**: id, user_id(FK,unique), language, report_style, preferred_model
-- **InspectionRecord**: id, user_id(FK), image_name, material, floor, has_extension, report → defects
-- **Defect**: id, record_id(FK), defect_type, area, box_coords(JSON)
+- **InspectionRecord**: id, user_id(FK), report, created_at → images(ImageInspection)
+- **ImageInspection**: id, record_id(FK), chat_image_id(FK→chat_images), image_name, material, floor, has_extension → defects
+- **Defect**: id, image_id(FK→image_inspection), defect_type, area, box_coords(JSON)
 - **Conversation**: id, user_id(FK), title, model, message_count, created_at, updated_at → messages
-- **ChatMessage**: id, conversation_id(FK), role, content, metadata(JSON), created_at
+- **ChatMessage**: id, conversation_id(FK), role, content, metadata(JSON), created_at → images(ChatImage)
+- **ChatImage**: id, message_id(FK), mime_type, data(BLOB) → inspection_images(ImageInspection)
 - **ConversationMemory**: id, user_id(FK), conversation_id(FK), memory_type, key, content, chroma_id, importance, access_count
 - **Feedback**: id, user_id(FK), record_id(FK), message_id(FK), feedback_type, target_field, original_value, corrected_value, rating, comment
 - **KnowledgeDocument**: id, title, file_name, file_type, source_type, chunk_count, status → chunks
