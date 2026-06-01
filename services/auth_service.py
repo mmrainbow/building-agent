@@ -1,13 +1,7 @@
+"""认证逻辑 — 返回纯数据，UI 组件由 app.py 处理。"""
 import os
 
-import gradio as gr
-
-from db import (
-    SessionLocal,
-    authenticate_user,
-    create_user,
-    init_db,
-)
+from db import SessionLocal, authenticate_user, create_user, init_db
 from db.models import User, UserRole
 
 from .constants import TEXT
@@ -41,20 +35,17 @@ def bootstrap_data() -> None:
         db.close()
 
 
-def handle_login(username, password):
+def handle_login(username, password) -> tuple[str, dict | None, bool, bool]:
+    """登录验证，返回 (消息, user_state, 显示登录页, 显示主页)。"""
     if not username or not password:
-        return TEXT["register_empty"], None, gr.update(visible=True), gr.update(visible=False)
+        return TEXT["register_empty"], None, True, False
 
     db = SessionLocal()
     try:
         user = authenticate_user(db, username, password)
         if not user:
-            return (
-                TEXT["invalid_credentials"],
-                None,
-                gr.update(visible=True),
-                gr.update(visible=False),
-            )
+            return TEXT["invalid_credentials"], None, True, False
+
         user_state = {
             "user_id": user.id,
             "username": user.username,
@@ -63,14 +54,15 @@ def handle_login(username, password):
         return (
             f"{TEXT['login_success']} 欢迎你，{user.username}。",
             user_state,
-            gr.update(visible=False),
-            gr.update(visible=True),
+            False,
+            True,
         )
     finally:
         db.close()
 
 
-def handle_register(username, password, confirm_password):
+def handle_register(username, password, confirm_password) -> str:
+    """注册，返回结果消息。"""
     if not username or not password:
         return TEXT["register_empty"]
     if password != confirm_password:
@@ -81,12 +73,11 @@ def handle_register(username, password, confirm_password):
     db = SessionLocal()
     try:
         user = create_user(db, username, password)
-        if user:
-            return TEXT["register_success"]
-        return TEXT["register_exists"]
+        return TEXT["register_success"] if user else TEXT["register_exists"]
     finally:
         db.close()
 
 
-def do_logout():
-    return None, gr.update(visible=True), gr.update(visible=False)
+def do_logout() -> tuple[None, bool, bool]:
+    """登出，返回 (None, 显示登录页, 显示主页)。"""
+    return None, True, False

@@ -25,6 +25,20 @@ from services import (
 bootstrap_data()
 
 
+# ── UI 适配层（services 返回纯数据，此处转 gr.update）─────────
+
+def _login_wrapper(username, password):
+    msg, state, show_login, show_main = handle_login(username, password)
+    return msg, state, gr.update(visible=show_login), gr.update(visible=show_main)
+
+
+def _logout_wrapper():
+    state, show_login, show_main = do_logout()
+    return state, gr.update(visible=show_login), gr.update(visible=show_main)
+
+
+# ── 智能问答回调 ───────────────────────────────────────────
+
 def respond(message, chat_history, chat_image, sess):
     if not message.strip():
         return "", chat_history, chat_image, sess
@@ -168,7 +182,7 @@ with gr.Blocks(title=TEXT["title"]) as demo:
 
     # 认证操作不走队列，避免被「开始巡检」等耗时任务堵住导致登录一直 heartbeat
     login_btn.click(
-        fn=handle_login,
+        fn=_login_wrapper,
         inputs=[login_user, login_pass],
         outputs=[login_msg, session_state, login_block, main_block],
         queue=False,
@@ -180,7 +194,7 @@ with gr.Blocks(title=TEXT["title"]) as demo:
         queue=False,
     )
     logout_btn.click(
-        fn=do_logout,
+        fn=_logout_wrapper,
         inputs=[],
         outputs=[session_state, login_block, main_block],
         queue=False,

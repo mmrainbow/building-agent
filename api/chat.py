@@ -1,38 +1,22 @@
-"""Chat API — ReAct Agent 智能 Tool 调用入口。
+"""Chat API — 薄层：请求解析 + 认证 + 调用 service + 返回响应。"""
 
-端点:
-    POST /chat/send              发送消息（文本 + 可选图片），AI 自主选择 Tool
-    GET  /chat/conversations      我的对话列表
-    GET  /chat/conversations/{id} 对话详情（含所有消息）
-    DELETE /chat/conversations/{id} 删除对话
-"""
-
-import io
-
-import cv2
-import numpy as np
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel, Field
 
 from api.auth import get_current_user
 from db import (
     SessionLocal,
-    add_message,
-    create_conversation,
     delete_conversation,
     get_conversation,
     get_conversation_messages,
     get_user_conversations,
     update_conversation_title,
 )
-from db import get_db as _get_db
-from pydantic import BaseModel, Field
+from llm.chat_core import decode_image, run_chat
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
-from llm.agent_factory import get_chat_agent
-
-
-# ── Response Schemas ───────────────────────────────────────
+# ── Schemas ─────────────────────────────────────────────────
 
 
 class ToolCallLog(BaseModel):
@@ -46,7 +30,6 @@ class ChatResponse(BaseModel):
     conversation_id: int
     response: str
     tool_log: list[ToolCallLog] = []
-    rounds: int = 0
 
 
 class ConversationItem(BaseModel):
@@ -63,70 +46,64 @@ class ConversationDetail(BaseModel):
     messages: list[dict]
 
 
-class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1)
-    conversation_id: int | None = Field(None, description="续接已有对话时传入")
-
-
-# ── 端点 ───────────────────────────────────────────────────
+# ── /chat/send ──────────────────────────────────────────────
 
 
 @router.post("/send", response_model=ChatResponse)
 async def chat_send(
     message: str = Query(..., description="用户输入文本"),
-    conversation_id: int | None = Query(None, description="续接已有对话"),
+    conversation_id: int | None = Query(None),
     image: UploadFile | None = File(None),
     user: dict = Depends(get_current_user),
 ):
-    """发送消息，AI 自主选择 Tool 执行分析。首次对话不传 conversation_id。"""
-    db = SessionLocal()
-    try:
-        # 1. 对话管理
-        if conversation_id is not None:
+    # 图片解码
+    np_image = None
+    if image is not None:
+        content = await image.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="上传的图片为空")
+        np_image = decode_image(content)
+        if np_image is None:
+            raise HTTPException(status_code=400, detail="无法解码图片")
+
+    # 已有对话权限校验
+    if conversation_id is not None:
+        db = SessionLocal()
+        try:
             conv = get_conversation(db, conversation_id)
             if conv is None:
                 raise HTTPException(status_code=404, detail="对话不存在")
             if conv.user_id != user["user_id"]:
                 raise HTTPException(status_code=403, detail="无权访问此对话")
-        else:
-            title = message[:40] + ("..." if len(message) > 40 else "")
-            conv = create_conversation(db, user["user_id"], title=title)
-            conversation_id = conv.id
+        finally:
+            db.close()
 
-        # 2. 图片处理
-        np_image = None
-        if image is not None:
-            content = await image.read()
-            if not content:
-                raise HTTPException(status_code=400, detail="上传的图片为空")
-            nparr = np.frombuffer(content, np.uint8)
-            np_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            if np_image is None:
-                raise HTTPException(status_code=400, detail="无法解码图片")
+    # 核心逻辑委托给 service
+    result = run_chat(
+        user_id=user["user_id"],
+        message=message,
+        conversation_id=conversation_id,
+        image=np_image,
+    )
 
-        # 3. Agent 执行
-        agent = get_chat_agent()
-        result = agent.run(
-            user_id=user["user_id"],
-            conversation_id=conversation_id,
-            message=message,
-            db=db,
-            image=np_image,
-        )
-
-        # 4. 自动设置对话标题（首次对话用 LLM 回复的前 40 字）
-        if conv.message_count <= 2 and conv.title and len(conv.title) <= 41:
+    # 首次对话自动设置标题
+    db = SessionLocal()
+    try:
+        conv = get_conversation(db, result["conversation_id"])
+        if conv and conv.message_count <= 2:
             title = (result["response"] or "新对话")[:40]
-            update_conversation_title(db, conversation_id, title)
-
-        return ChatResponse(
-            conversation_id=conversation_id,
-            response=result["response"],
-            tool_log=[ToolCallLog(**t) for t in result["tool_log"]],
-            rounds=result["rounds"],
-        )
+            update_conversation_title(db, result["conversation_id"], title)
     finally:
         db.close()
+
+    return ChatResponse(
+        conversation_id=result["conversation_id"],
+        response=result["response"],
+        tool_log=[ToolCallLog(**t) for t in result["tool_log"]],
+    )
+
+
+# ── /chat/conversations ─────────────────────────────────────
 
 
 @router.get("/conversations", response_model=list[ConversationItem])
