@@ -8,14 +8,12 @@
 """
 
 import io
-from typing import Any
 
 import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 
 from api.auth import get_current_user
-from api.schemas import TokenResponse  # noqa: keep for re-export
 from db import (
     SessionLocal,
     add_message,
@@ -31,23 +29,7 @@ from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
-# ── Agent 懒加载 ────────────────────────────────────────────
-# 直接从源模块导入，避免触发 services/__init__.py 的 import 链
-# （services/__init__.py 会导入 inspection_service → agent.graph → YOLO 模型）
-
-_agent: Any = None
-
-
-def _get_agent():
-    global _agent
-    if _agent is None:
-        from llm.client import LLMClient
-        from llm.tools import build_tools
-        from agent.orchestrator import InspectionAgent
-
-        _agent = InspectionAgent(LLMClient())
-        _agent.tools = build_tools()
-    return _agent
+from llm.agent_factory import get_chat_agent
 
 
 # ── Response Schemas ───────────────────────────────────────
@@ -123,7 +105,7 @@ async def chat_send(
                 raise HTTPException(status_code=400, detail="无法解码图片")
 
         # 3. Agent 执行
-        agent = _get_agent()
+        agent = get_chat_agent()
         result = agent.run(
             user_id=user["user_id"],
             conversation_id=conversation_id,
