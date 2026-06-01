@@ -141,6 +141,7 @@ class ChatMessage(Base):
     )
     role = Column(String(20), nullable=False)  # 'user' | 'assistant' | 'system'
     content = Column(Text, nullable=False)
+    image_path = Column(String(500))  # 用户上传图片的本地路径，如 chat_images/42.jpg
     # metadata 存储 tokens, latency_ms, sources (RAG引用) 等可选信息
     metadata_ = Column("metadata", JSON)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

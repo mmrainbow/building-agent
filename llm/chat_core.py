@@ -20,6 +20,7 @@ def run_chat(
     message: str,
     conversation_id: int | None = None,
     image: np.ndarray | None = None,
+    user_image_path: str | None = None,
 ) -> dict:
     """创建/续接对话 → 调用 Agent → 返回结果。
 
@@ -43,6 +44,7 @@ def run_chat(
             message=message,
             db=db,
             image=image,
+            user_image_path=user_image_path,
         )
         from services.constants import TEXT
 

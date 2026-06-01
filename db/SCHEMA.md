@@ -123,6 +123,7 @@ knowledge_documents ─── 1:N ─── knowledge_chunks
 | `conversation_id` | INTEGER | FK→conversations.id, CASCADE | |
 | `role` | VARCHAR(20) | NOT NULL | user / assistant / system |
 | `content` | TEXT | NOT NULL | 消息正文 |
+| `image_path` | VARCHAR(500) | NULLABLE | 用户上传图片的本地路径，如 `chat_images/a1b2c3.jpg` |
 | `metadata` | JSON | | `{tool_calls, tokens, latency_ms, sources}` |
 | `created_at` | DATETIME | DEFAULT NOW | |
 

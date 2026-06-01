@@ -56,8 +56,9 @@ async def chat_send(
     image: UploadFile | None = File(None),
     user: dict = Depends(get_current_user),
 ):
-    # 图片解码
+    # 图片解码 + 存储
     np_image = None
+    image_path = None
     if image is not None:
         content = await image.read()
         if not content:
@@ -65,6 +66,9 @@ async def chat_send(
         np_image = decode_image(content)
         if np_image is None:
             raise HTTPException(status_code=400, detail="无法解码图片")
+        # 保存到 chat_images/
+        from services.chat_service import _save_image
+        image_path = _save_image(np_image)
 
     # 已有对话权限校验
     if conversation_id is not None:
@@ -84,6 +88,7 @@ async def chat_send(
         message=message,
         conversation_id=conversation_id,
         image=np_image,
+        user_image_path=image_path,
     )
 
     # 首次对话自动设置标题

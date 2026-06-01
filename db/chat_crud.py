@@ -58,12 +58,18 @@ def delete_conversation(db: Session, conversation_id: int) -> bool:
 
 
 def add_message(
-    db: Session, conversation_id: int, role: str, content: str, metadata: dict | None = None
+    db: Session,
+    conversation_id: int,
+    role: str,
+    content: str,
+    metadata: dict | None = None,
+    image_path: str | None = None,
 ) -> ChatMessage:
     msg = ChatMessage(
         conversation_id=conversation_id,
         role=role,
         content=content,
+        image_path=image_path,
         metadata_=metadata or {},
     )
     db.add(msg)

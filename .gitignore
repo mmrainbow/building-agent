@@ -14,3 +14,4 @@ inspection.db
 *.pickle
 chroma_db/
 rag_data/
+chat_images/

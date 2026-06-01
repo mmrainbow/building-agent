@@ -117,6 +117,7 @@ class InspectionAgent:
         message: str,
         db: Any,
         image=None,
+        user_image_path: str | None = None,
         recent_messages: list | None = None,
         memories: list | None = None,
     ) -> dict:
@@ -128,6 +129,7 @@ class InspectionAgent:
             message: 用户输入文本
             db: SQLAlchemy Session
             image: 可选的 numpy 图像数组
+            user_image_path: 用户上传图片的本地存储路径（持久化到 ChatMessage）
             recent_messages: 最近历史消息；为 None 时由 build_context 自动拉取
             memories: 长期记忆；为 None 时由 build_context 自动拉取
 
@@ -224,7 +226,7 @@ class InspectionAgent:
             final_text = final_resp.get("content") or "无法生成报告。"
 
         # 4. 持久化短期记忆，并提炼长期记忆
-        self._save_turn(db, conversation_id, message, final_text, tool_log)
+        self._save_turn(db, conversation_id, message, final_text, tool_log, user_image_path)
         self._extract_memory(db, user_id, conversation_id)
 
         return {
@@ -243,11 +245,12 @@ class InspectionAgent:
         user_msg: str,
         assistant_msg: str,
         tool_log: list[dict],
+        user_image_path: str | None = None,
     ) -> None:
         """保存本轮对话到 ChatMessage 表。"""
         from db.chat_crud import add_message
 
-        add_message(db, conversation_id, "user", user_msg)
+        add_message(db, conversation_id, "user", user_msg, image_path=user_image_path)
         if assistant_msg:
             meta = {"tool_calls": tool_log} if tool_log else None
             add_message(
