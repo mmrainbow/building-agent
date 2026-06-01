@@ -40,7 +40,7 @@ class _MockAgent:
 
 @pytest.fixture(autouse=True)
 def mock_agent():
-    with patch("api.chat._agent", _MockAgent()), patch("api.chat._tools", {}):
+    with patch("api.chat._agent", _MockAgent()):
         yield
 
 

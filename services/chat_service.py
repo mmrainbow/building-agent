@@ -48,8 +48,11 @@ def _compose_message(message: str, user_state: dict) -> str:
     return text
 
 
-def chat_with_llm(message, history, user_state):
-    """智能问答：自动 build_context、ReAct、短期落库、长期提炼。"""
+def chat_with_llm(message, history, user_state, image=None):
+    """智能问答：自动 build_context、ReAct、短期落库、长期提炼。
+
+    image: 可选的 numpy 图像数组（Gradio Image 组件输出）。
+    """
     if not user_state or not user_state.get("user_id"):
         return TEXT["login_required"]
     if not (message or "").strip():
@@ -62,16 +65,24 @@ def chat_with_llm(message, history, user_state):
     try:
         conv_id = _ensure_conversation(db, user_state)
         full_message = _compose_message(message, user_state)
-        image = user_state.get("last_image")
+        # image 参数优先，其次取 session 中的 last_image
+        img = image if image is not None else user_state.get("last_image")
 
         result = _get_agent().run(
             user_id=user_state["user_id"],
             conversation_id=conv_id,
             message=full_message,
             db=db,
-            image=image,
+            image=img,
         )
-        return (result.get("response") or "").strip() or TEXT["no_report"]
+        response = (result.get("response") or "").strip() or TEXT["no_report"]
+
+        # 附上 tool 调用摘要
+        tool_log = result.get("tool_log", [])
+        if tool_log:
+            used = [t["name"] for t in tool_log]
+            response += f"\n\n> 🔧 已调用: {', '.join(used)}"
+        return response
     except Exception as e:
         return f"问答失败：{type(e).__name__}: {e}"
     finally:

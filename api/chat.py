@@ -31,22 +31,22 @@ from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
-# ── Agent 懒加载（避免 import 时依赖 torch）─────────────────
+# ── Agent 懒加载 ────────────────────────────────────────────
+# 直接从源模块导入，避免触发 services/__init__.py 的 import 链
+# （services/__init__.py 会导入 inspection_service → agent.graph → YOLO 模型）
 
 _agent: Any = None
-_tools: dict | None = None
 
 
 def _get_agent():
-    global _agent, _tools
+    global _agent
     if _agent is None:
         from llm.client import LLMClient
         from llm.tools import build_tools
         from agent.orchestrator import InspectionAgent
 
         _agent = InspectionAgent(LLMClient())
-        _tools = build_tools()
-        _agent.tools = _tools
+        _agent.tools = build_tools()
     return _agent
 
 

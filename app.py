@@ -25,13 +25,16 @@ from services import (
 bootstrap_data()
 
 
-def respond(message, chat_history, sess):
+def respond(message, chat_history, chat_image, sess):
     if not message.strip():
-        return "", chat_history, sess
-    bot_message = chat_with_llm(message, chat_history, sess)
+        return "", chat_history, chat_image, sess
+    # 如果上传了图片，将图片存入 session 供后续对话使用
+    if chat_image is not None:
+        sess["last_image"] = chat_image
+    bot_message = chat_with_llm(message, chat_history, sess, image=chat_image)
     chat_history.append({"role": "user", "content": message})
     chat_history.append({"role": "assistant", "content": bot_message})
-    return "", chat_history, sess
+    return "", chat_history, None, sess
 
 
 with gr.Blocks(title=TEXT["title"]) as demo:
@@ -124,15 +127,33 @@ with gr.Blocks(title=TEXT["title"]) as demo:
 
             with gr.TabItem("智能问答"):
                 gr.Markdown(
-                    "使用 ReAct Agent 与双层记忆（会话历史 + 长期偏好）。"
-                    "先在「图像巡检」完成检测后提问效果更佳；也可直接咨询建筑巡检问题。"
+                    "**ReAct Agent** — AI 自主选择调用 CV 工具。"
+                    "可上传图片让 AI 分析，也可纯文本咨询建筑巡检问题。"
                 )
-                chatbot = gr.Chatbot(label="对话记录")
-                msg = gr.Textbox(label="问题", placeholder="例如：这个裂缝是否严重？")
-                clear = gr.Button("清空对话")
+                chatbot = gr.Chatbot(label="对话记录", height=450)
+                with gr.Row():
+                    msg = gr.Textbox(
+                        label="输入问题",
+                        placeholder="例如：这栋楼有什么隐患？全面检测一下",
+                        scale=4,
+                    )
+                    send_btn = gr.Button("发送", variant="primary", scale=1)
+                with gr.Row():
+                    chat_image = gr.Image(label="上传图片（可选）", type="numpy", height=200)
+                    clear = gr.Button("新建对话", scale=1)
 
+                def _handle_send(message, history, img, sess):
+                    return respond(message, history, img, sess)
+
+                send_btn.click(
+                    _handle_send,
+                    [msg, chatbot, chat_image, session_state],
+                    [msg, chatbot, chat_image, session_state],
+                )
                 msg.submit(
-                    respond, [msg, chatbot, session_state], [msg, chatbot, session_state]
+                    respond,
+                    [msg, chatbot, chat_image, session_state],
+                    [msg, chatbot, chat_image, session_state],
                 )
 
                 def _clear_chat(sess):
