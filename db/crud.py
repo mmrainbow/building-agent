@@ -17,7 +17,7 @@ def create_user(
     db: Session,
     username: str,
     password: str,
-    role: UserRole = UserRole.inspector,
+    role: UserRole = UserRole.user,
 ) -> User | None:
     username = (username or "").strip()
     if not username or not password:

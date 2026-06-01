@@ -19,8 +19,8 @@ Base = declarative_base()
 
 
 class UserRole(str, enum.Enum):
-    inspector = "inspector"  # 默认角色
-    admin = "admin"
+    user = "user"  # 默认角色（普通用户）
+    admin = "admin"  # 管理员
 
 
 class MemoryType(str, enum.Enum):
@@ -46,7 +46,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(50), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
-    role = Column(Enum(UserRole), default=UserRole.inspector, nullable=False)
+    role = Column(Enum(UserRole), default=UserRole.user, nullable=False)
     is_active = Column(Boolean, default=True)  # 软删除标记
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     last_login_at = Column(DateTime)

@@ -19,7 +19,7 @@ def load_statistics(user_state):
     db = SessionLocal()
     try:
         user_id = user_state["user_id"]
-        role = user_state.get("role", "inspector")
+        role = user_state.get("role", "user")
         query_user_id = None if role == "admin" else user_id
 
         summary = get_overall_summary(db, query_user_id)

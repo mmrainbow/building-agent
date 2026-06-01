@@ -27,7 +27,7 @@ knowledge_documents ─── 1:N ─── knowledge_chunks
 ### UserRole
 | 值 | 含义 |
 |------|------|
-| `inspector` | 默认角色，普通巡检员 |
+| `user` | 默认角色，普通用户 |
 | `admin` | 管理员，可查看所有记录和用户列表 |
 
 ### MemoryType
