@@ -10,8 +10,7 @@
 |------|------|---------|
 | 阶段0: 基础夯实 | **已完成** | 2026-05-26 |
 | 阶段0.5: 数据模型架构补强 | **已完成** | 2026-05-26 |
-| 阶段1: Agent 框架 + RAG + 对话系统 | **进行中** | — |
-| 阶段2: 反馈系统 API+UI | 待开始 | — |
+| 阶段1: Agent 框架 + RAG + 对话系统 | **已完成** | 2026-06-01 |
 | 阶段2: 反馈系统 | 待开始 | — |
 | 阶段3: 多 Agent 协同 | 待开始 | — |
 | 阶段4: 服务化部署 | 待开始 | — |
@@ -423,7 +422,7 @@ POST   /api/chat/rag               # 基于知识库的问答 (已有 /api/chat�
 
 > **架构决策**: 记忆向量存储选 ChromaDB（阶段1B集成），当前用 SQLite LIKE 做关键词过渡检索；记忆提取方式选 LLM 自动提取（每轮对话后用小 prompt 提取关键事实）；对话存储选无限存储（全量持久化，30天/200条后可选摘要压缩）。
 
-### 阶段1: Agent 框架 + RAG + 对话系统 (2-3周, 1-2人) 🔄 进行中
+### 阶段1: Agent 框架 + RAG + 对话系统 (2-3周, 1-2人) ✅ 已完成 2026-06-01
 
 **目标**: 通义千问 API 替代本地 Ollama，Predictor 封装为 Tool 让 AI 自主选择调用，打通 思维链 + Memory + RAG。
 
@@ -508,19 +507,22 @@ api/
 - [x] **System Prompt** — 建筑巡检专家角色 + 5 个工具说明 + 使用原则 + 输出格式 — **复杂度: 中, 可 CC**
 - [x] **Tool 调用日志** — 记录 name/input/output/elapsed_ms 到 ChatMessage.metadata — **复杂度: 低, 可 CC**
 
-**1.4 Memory + RAG (1天)** ⏸ 延后
-- [ ] **MemoryManager** — `agent/memory_manager.py`: 三层检索 + 上下文组装 + 记忆自动提取
-- [ ] **记忆提取** — LLM 识别关键事实 → upsert 到 ConversationMemory
-- [ ] **ChromaDB 集成** — `knowledge/vector_store.py`: embedding → 向量写入/检索
+**1.4 Memory + RAG (1天)** ✅
+- [x] **MemoryManager** — `agent/memory_manager.py`: 双层记忆（近期消息 + LLM 提取长期记忆）→ ConversationMemory
+- [x] **ChromaDB 接入** — KnowledgeSearchTool 优先查 ChromaDB 规范 (`agent/rag.py` search_regulations)，回退用户记忆
 
-**1.5 Chat API (0.5天)**
-- [ ] **对话端点** — `api/chat.py`: POST `/chat/send` (支持图片), GET `/chat/conversations`, GET/DELETE `/chat/conversations/{id}` — **复杂度: 中, 可 CC**
+**1.5 Chat API (0.5天)** ✅
+- [x] **对话端点** — `api/chat.py`: POST `/chat/send` (支持图片), GET `/chat/conversations`, GET/DELETE `/chat/conversations/{id}`
 
-**1.6 集成验证 (0.5天)**
-- [ ] **端到端测试** — 发图片 → AI 自主选择 Tool → 返回报告，验证 tool_call_log — **复杂度: 中, 可 CC**
-- [ ] **Gradio 对话 Tab 升级** — 接入 Chat API，支持对话历史切换 — **复杂度: 中, 可 CC**
+**1.6 集成验证 + 代码清理 (0.5天)** ✅
+- [x] **统一 Agent 实例** — `llm/agent_factory.py` 单例，api/ 和 services/ 共用
+- [x] **职责边界清理** — api/ 薄路由、services/ Gradio 适配、llm/ 核心逻辑
+- [x] **Gradio 对话 Tab 升级** — 图片上传 + tool 调用摘要显示
+- [x] **42 测试通过**
 
 > **架构决策**: ReAct 最大循环 10 次防死循环；Tool 超时 30s；短期记忆窗口 20 条消息；长期记忆 top_k=5；RAG top_k=3。Memory+RAG 延后到 API 调通后再做，先用 orchestrator 内置的简单历史消息注入。
+
+### 阶段2: 反馈系统 (1周, 1人)
 
 **目标**: 收集用户纠错和评分数据，建立数据飞轮。
 
