@@ -41,17 +41,19 @@ class InspectionResult(BaseModel):
     has_extension: str | None
     defects: list[dict]
     record_id: int | None
+    image_count: int = 1
 
 
 class DefectInfo(BaseModel):
     type: str
     area: float
     box: list
+    image_id: int | None = None
 
 
 class RecordResponse(BaseModel):
     id: int
-    image_name: str | None
+    image_count: int
     material: str | None
     floor: str | None
     has_extension: str | None

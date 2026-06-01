@@ -73,35 +73,53 @@ class User(Base):
 
 
 class InspectionRecord(Base):
+    """一次巡检会话 — 对同一建筑的多张图片进行检测，汇总生成一份报告。"""
     __tablename__ = "inspection_records"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    image_name = Column(String(255))
-    material = Column(String(100))
-    floor = Column(String(20))
-    has_extension = Column(String(20))
-    report = Column(Text)
+    report = Column(Text)  # 综合所有图片汇总生成的巡检报告
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="records")
-    defects = relationship(
-        "Defect", back_populates="record", cascade="all, delete-orphan"
+    images = relationship(
+        "InspectionImage", back_populates="record", cascade="all, delete-orphan"
     )
 
 
-class Defect(Base):
-    __tablename__ = "defects"
+class InspectionImage(Base):
+    """巡检中的单张图片 — 每张图有自己的检测结果。"""
+    __tablename__ = "inspection_images"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     record_id = Column(
         Integer, ForeignKey("inspection_records.id", ondelete="CASCADE"), nullable=False
     )
+    image_name = Column(String(255))
+    material = Column(String(100))
+    floor = Column(String(20))
+    has_extension = Column(String(20))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    record = relationship("InspectionRecord", back_populates="images")
+    defects = relationship(
+        "Defect", back_populates="image", cascade="all, delete-orphan"
+    )
+
+
+class Defect(Base):
+    """图片级的隐患 — 每条缺陷属于某张巡检图片。"""
+    __tablename__ = "defects"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    image_id = Column(
+        Integer, ForeignKey("inspection_images.id", ondelete="CASCADE"), nullable=False
+    )
     defect_type = Column(String(50))
     area = Column(Float)
     box_coords = Column(JSON)
 
-    record = relationship("InspectionRecord", back_populates="defects")
+    image = relationship("InspectionImage", back_populates="defects")
 
 
 # ── 对话 ─────────────────────────────────────────────────

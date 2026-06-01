@@ -4,6 +4,7 @@ from .models import (
     User,
     UserRole,
     InspectionRecord,
+    InspectionImage,
     Defect,
     Conversation,
     ChatMessage,

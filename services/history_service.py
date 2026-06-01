@@ -20,14 +20,12 @@ def load_history(user_state):
             {
                 "ID": record.id,
                 "时间": record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else "",
-                "材质": record.material or "",
-                "楼层": record.floor or "",
-                "加层": record.has_extension or "",
-                "隐患数": len(record.defects) if record.defects else 0,
+                "图片数": len(record.images or []),
+                "隐患数": sum(len(img.defects or []) for img in (record.images or [])),
             }
             for record in records
         ]
-        columns = ["ID", "时间", "材质", "楼层", "加层", "隐患数"]
+        columns = ["ID", "时间", "图片数", "隐患数"]
         table = pd.DataFrame(rows) if rows else pd.DataFrame(columns=columns)
         return table, pd.DataFrame()
     finally:
@@ -53,14 +51,18 @@ def show_record_detail(history_df, evt=None):
             return "未找到记录。", pd.DataFrame(), None
 
         report = record.report or "无报告。"
-        if record.defects:
+        all_defects = []
+        for img in (record.images or []):
+            for defect in (img.defects or []):
+                all_defects.append(defect)
+        if all_defects:
             defect_rows = [
                 {
-                    "序号": index + 1,
-                    "类型": defect.defect_type,
-                    "面积": round(defect.area or 0, 1),
+                    "序号": i + 1,
+                    "类型": d.defect_type,
+                    "面积": round(d.area or 0, 1),
                 }
-                for index, defect in enumerate(record.defects)
+                for i, d in enumerate(all_defects)
             ]
             defects_df = pd.DataFrame(defect_rows)
         else:
@@ -80,15 +82,22 @@ def export_history_to_excel(record_id):
         if not record:
             return None
 
-        if record.defects:
+        all_defects = []
+        materials = []
+        floors = []
+        extensions = []
+        for img in (record.images or []):
+            materials.append(img.material or "")
+            floors.append(img.floor or "")
+            extensions.append(img.has_extension or "")
+            for d in (img.defects or []):
+                all_defects.append(d)
+
+        if all_defects:
             defects_df = pd.DataFrame(
                 [
-                    {
-                        "序号": i + 1,
-                        "隐患类型": d.defect_type,
-                        "面积": round(d.area or 0, 1),
-                    }
-                    for i, d in enumerate(record.defects)
+                    {"序号": i + 1, "隐患类型": d.defect_type, "面积": round(d.area or 0, 1)}
+                    for i, d in enumerate(all_defects)
                 ]
             )
         else:
@@ -96,11 +105,12 @@ def export_history_to_excel(record_id):
 
         summary_df = pd.DataFrame(
             {
-                "巡检项": ["材质", "楼层", "加层"],
+                "巡检项": ["图片数", "材质", "楼层", "加层"],
                 "结果": [
-                    record.material or "",
-                    record.floor or "",
-                    record.has_extension or "",
+                    str(len(record.images or [])),
+                    ", ".join(set(m for m in materials if m)) or "",
+                    ", ".join(set(f for f in floors if f)) or "",
+                    ", ".join(set(e for e in extensions if e)) or "",
                 ],
             }
         )

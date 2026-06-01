@@ -97,7 +97,7 @@ with gr.Blocks(title=TEXT["title"]) as demo:
                 history_table = gr.Dataframe(
                     label="巡检记录",
                     interactive=False,
-                    headers=["ID", "时间", "材质", "楼层", "加层", "隐患数"],
+                    headers=["ID", "时间", "图片数", "隐患数"],
                 )
                 with gr.Row():
                     with gr.Column():

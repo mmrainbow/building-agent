@@ -2,7 +2,7 @@ import bcrypt
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .models import Defect, InspectionRecord, User, UserRole
+from .models import Defect, InspectionImage, InspectionRecord, User, UserRole
 
 HAS_EXTENSION_YES = {"有加层", "存在加层", "yes", "true", "1", "has extension"}
 
@@ -56,20 +56,25 @@ def save_inspection(
     report: str,
     defects: list[dict],
 ) -> InspectionRecord:
-    record = InspectionRecord(
-        user_id=user_id,
+    # 巡检会话
+    record = InspectionRecord(user_id=user_id, report=report)
+    db.add(record)
+    db.flush()
+
+    # 图片级检测结果
+    img = InspectionImage(
+        record_id=record.id,
         image_name=image_name,
         material=material,
         floor=floor,
         has_extension=has_extension,
-        report=report,
     )
-    db.add(record)
+    db.add(img)
     db.flush()
 
     for defect_input in defects or []:
         defect = Defect(
-            record_id=record.id,
+            image_id=img.id,
             defect_type=str(defect_input.get("type", "")),
             area=float(defect_input.get("area", 0) or 0),
             box_coords=defect_input.get("box", []),
@@ -109,15 +114,19 @@ def get_record_detail(db: Session, record_id: int) -> InspectionRecord | None:
 def get_defect_type_distribution(db: Session, user_id: int | None = None):
     query = db.query(Defect.defect_type, func.count(Defect.id).label("cnt"))
     if user_id is not None:
-        query = query.join(InspectionRecord).filter(InspectionRecord.user_id == user_id)
+        query = (
+            query.join(InspectionImage)
+            .join(InspectionRecord)
+            .filter(InspectionRecord.user_id == user_id)
+        )
     rows = query.group_by(Defect.defect_type).all()
     return [{"type": row[0], "count": row[1]} for row in rows]
 
 
 def get_material_distribution(db: Session, user_id: int | None = None):
-    query = db.query(InspectionRecord.material)
+    query = db.query(InspectionImage.material)
     if user_id is not None:
-        query = query.filter(InspectionRecord.user_id == user_id)
+        query = query.join(InspectionRecord).filter(InspectionRecord.user_id == user_id)
     materials = [row[0] for row in query.all() if row[0] and row[0] != "未知"]
 
     counter: dict[str, int] = {}

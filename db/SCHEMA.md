@@ -2,14 +2,14 @@
 
 > 引擎: SQLAlchemy 2 + SQLite（可切换 MySQL）  
 > 文件: `db/models.py`  
-> 总计: 11 张表，3 个枚举
+> 总计: 12 张表，3 个枚举
 
 ---
 
 ## ER 图
 
 ```
-users ─── 1:N ─── inspection_records ─── 1:N ─── defects
+users ─── 1:N ─── inspection_records ─── 1:N ─── inspection_images ─── 1:N ─── defects
   │
   ├── 1:N ─── conversations ─── 1:N ─── chat_messages ─── 1:N ─── chat_images
   │
@@ -68,17 +68,34 @@ knowledge_documents ─── 1:N ─── knowledge_chunks
 
 ---
 
-## 2. inspection_records — 巡检记录
+## 2. inspection_records — 巡检会话
+
+一次巡检 = 对同一建筑的多张图片进行检测，汇总生成一份报告。
 
 | 列名 | 类型 | 约束 | 说明 |
 |------|------|------|------|
 | `id` | INTEGER | PK, AUTO | |
 | `user_id` | INTEGER | FK→users.id, NOT NULL | |
+| `report` | TEXT | | 综合所有图片汇总生成的巡检报告 |
+| `created_at` | DATETIME | DEFAULT NOW | |
+
+**关联**:
+- → `inspection_images` (1:N, 级联删除)
+
+---
+
+## 3. inspection_images — 巡检图片
+
+每张图片有独立的检测结果。
+
+| 列名 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| `id` | INTEGER | PK, AUTO | |
+| `record_id` | INTEGER | FK→inspection_records.id, CASCADE | |
 | `image_name` | VARCHAR(255) | | 上传文件名 |
-| `material` | VARCHAR(100) | | 材质检测结果，如 "Face Brick,Coating" |
-| `floor` | VARCHAR(20) | | 楼层估算，如 "5层" |
-| `has_extension` | VARCHAR(20) | | 加层检测，如 "无加层" / "有加层" |
-| `report` | TEXT | | LLM 生成的巡检报告全文 |
+| `material` | VARCHAR(100) | | 材质检测结果 |
+| `floor` | VARCHAR(20) | | 楼层估算 |
+| `has_extension` | VARCHAR(20) | | 加层检测 |
 | `created_at` | DATETIME | DEFAULT NOW | |
 
 **关联**:
@@ -86,19 +103,21 @@ knowledge_documents ─── 1:N ─── knowledge_chunks
 
 ---
 
-## 3. defects — 隐患详情
+## 4. defects — 图片级隐患
+
+每条隐患属于一张巡检图片。
 
 | 列名 | 类型 | 约束 | 说明 |
 |------|------|------|------|
 | `id` | INTEGER | PK, AUTO | |
-| `record_id` | INTEGER | FK→inspection_records.id, CASCADE | |
+| `image_id` | INTEGER | FK→inspection_images.id, CASCADE | |
 | `defect_type` | VARCHAR(50) | | 空鼓 / 渗水 / 脱落 / 裂缝 |
 | `area` | FLOAT | | 面积（像素²） |
-| `box_coords` | JSON | | 坐标框 `[[x1,y1],[x2,y2],[x3,y3],[x4,y4]]` |
+| `box_coords` | JSON | | 坐标框 |
 
 ---
 
-## 4. conversations — 对话会话
+## 5. conversations — 对话会话
 
 | 列名 | 类型 | 约束 | 说明 |
 |------|------|------|------|
@@ -115,7 +134,7 @@ knowledge_documents ─── 1:N ─── knowledge_chunks
 
 ---
 
-## 5. chat_messages — 对话消息
+## 6. chat_messages
 
 | 列名 | 类型 | 约束 | 说明 |
 |------|------|------|------|
@@ -128,7 +147,7 @@ knowledge_documents ─── 1:N ─── knowledge_chunks
 
 ---
 
-## 5b. chat_images — 对话图片
+## 7. chat_images — 对话图片
 
 | 列名 | 类型 | 约束 | 说明 |
 |------|------|------|------|
@@ -144,7 +163,7 @@ knowledge_documents ─── 1:N ─── knowledge_chunks
 
 ---
 
-## 6. conversation_memories — 长期记忆
+## 8. conversation_memories — 长期记忆
 
 | 列名 | 类型 | 约束 | 说明 |
 |------|------|------|------|
@@ -165,7 +184,7 @@ knowledge_documents ─── 1:N ─── knowledge_chunks
 
 ---
 
-## 7. user_preferences — 用户偏好
+## 9. user_preferences — 用户偏好
 
 | 列名 | 类型 | 约束 | 说明 |
 |------|------|------|------|
@@ -179,7 +198,7 @@ knowledge_documents ─── 1:N ─── knowledge_chunks
 
 ---
 
-## 8. feedbacks — 用户反馈
+## 10. feedbacks — 用户反馈
 
 | 列名 | 类型 | 约束 | 说明 |
 |------|------|------|------|
@@ -199,7 +218,7 @@ knowledge_documents ─── 1:N ─── knowledge_chunks
 
 ---
 
-## 9. knowledge_documents — 知识库文档
+## 11. knowledge_documents — 知识库文档
 
 | 列名 | 类型 | 约束 | 说明 |
 |------|------|------|------|
@@ -217,7 +236,7 @@ knowledge_documents ─── 1:N ─── knowledge_chunks
 
 ---
 
-## 10. knowledge_chunks — 知识库分块
+## 12. knowledge_chunks — 知识库分块
 
 | 列名 | 类型 | 约束 | 说明 |
 |------|------|------|------|
