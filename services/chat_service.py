@@ -69,3 +69,62 @@ def reset_chat_session(user_state):
     if user_state:
         user_state["conversation_id"] = None
     return user_state
+
+
+def list_user_conversations(user_state) -> list:
+    """获取用户的对话列表，返回 [(label, id), ...] 供 Gradio Radio 使用。"""
+    if not user_state or not user_state.get("user_id"):
+        return []
+    from db import SessionLocal, get_user_conversations
+
+    db = SessionLocal()
+    try:
+        convs = get_user_conversations(db, user_state["user_id"], limit=50)
+        return [
+            (
+                f"{c.title or '新对话'}  ({c.updated_at.strftime('%m-%d %H:%M') if c.updated_at else ''})",
+                c.id,
+            )
+            for c in convs
+        ]
+    finally:
+        db.close()
+
+
+def load_conversation_messages(conv_id, user_state) -> tuple:
+    """加载指定对话的消息到 Gradio Chatbot 格式，更新 session。"""
+    if not user_state or not user_state.get("user_id") or conv_id is None:
+        return [], user_state
+    from db import SessionLocal, get_conversation_messages
+
+    db = SessionLocal()
+    try:
+        msgs = get_conversation_messages(db, conv_id, limit=200)
+        history = []
+        for m in msgs:
+            if m.role in ("user", "assistant"):
+                history.append({"role": m.role, "content": m.content or ""})
+        user_state["conversation_id"] = int(conv_id)
+        return history, user_state
+    finally:
+        db.close()
+
+
+def delete_user_conversation(conv_id, user_state) -> tuple:
+    """删除对话并刷新列表。"""
+    if not user_state or not user_state.get("user_id") or conv_id is None:
+        return list_user_conversations(user_state), user_state
+    from db import SessionLocal, delete_conversation
+
+    db = SessionLocal()
+    try:
+        delete_conversation(db, int(conv_id))
+        if user_state.get("conversation_id") == int(conv_id):
+            user_state["conversation_id"] = None
+        choices = list_user_conversations(user_state)
+        # 如果有剩余对话，自动选第一个
+        if choices and not user_state.get("conversation_id"):
+            user_state["conversation_id"] = choices[0][1]
+        return choices, user_state
+    finally:
+        db.close()

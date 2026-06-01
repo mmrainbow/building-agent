@@ -11,6 +11,9 @@ from services import (
     TEXT,
     bootstrap_data,
     chat_with_llm,
+    delete_user_conversation,
+    list_user_conversations,
+    load_conversation_messages,
     reset_chat_session,
     do_logout,
     export_history_to_excel,
@@ -140,44 +143,116 @@ with gr.Blocks(title=TEXT["title"]) as demo:
                 )
 
             with gr.TabItem("智能问答"):
-                gr.Markdown(
-                    "**ReAct Agent** — AI 自主选择调用 CV 工具。"
-                    "可上传图片让 AI 分析，也可纯文本咨询建筑巡检问题。"
-                )
-                chatbot = gr.Chatbot(label="对话记录", height=450)
                 with gr.Row():
-                    msg = gr.Textbox(
-                        label="输入问题",
-                        placeholder="例如：这栋楼有什么隐患？全面检测一下",
-                        scale=4,
-                    )
-                    send_btn = gr.Button("发送", variant="primary", scale=1)
-                with gr.Row():
-                    chat_image = gr.Image(label="上传图片（可选）", type="numpy", height=200)
-                    clear = gr.Button("新建对话", scale=1)
+                    # ── 左侧对话列表 ──
+                    with gr.Column(scale=1):
+                        gr.Markdown("### 对话列表")
+                        conv_list = gr.Radio(
+                            choices=[],
+                            label="选择对话",
+                            interactive=True,
+                        )
+                        with gr.Row():
+                            new_conv_btn = gr.Button("+ 新建", size="sm")
+                            del_conv_btn = gr.Button("删除", size="sm", variant="stop")
 
-                def _handle_send(message, history, img, sess):
-                    return respond(message, history, img, sess)
+                    # ── 右侧聊天区 ──
+                    with gr.Column(scale=3):
+                        chatbot = gr.Chatbot(label="对话记录", height=450)
+                        with gr.Row():
+                            msg = gr.Textbox(
+                                label="输入问题",
+                                placeholder="例如：这栋楼有什么隐患？",
+                                scale=4,
+                            )
+                            send_btn = gr.Button("发送", variant="primary", scale=1)
+                        with gr.Row():
+                            chat_image = gr.Image(
+                                label="上传图片（可选）", type="numpy", height=180
+                            )
+
+                # ── 对话列表刷新 ──
+                def _refresh_list(sess):
+                    return gr.update(choices=list_user_conversations(sess))
+
+                # 进入 Tab 时自动刷新列表
+                conv_list.render = None
+                # 用 login 后的 session_state 变化触发首次加载 —— 改成手动刷新
+
+                # ── 选择对话 → 加载历史 ──
+                def _select_conv(conv_id, sess):
+                    if conv_id is None:
+                        return [], sess
+                    history, sess = load_conversation_messages(conv_id, sess)
+                    return history, sess
+
+                conv_list.change(
+                    _select_conv,
+                    [conv_list, session_state],
+                    [chatbot, session_state],
+                )
+
+                # ── 新建对话 ──
+                def _new_conv(sess):
+                    sess = reset_chat_session(sess)
+                    return (
+                        [],
+                        gr.update(choices=list_user_conversations(sess)),
+                        sess,
+                    )
+
+                new_conv_btn.click(
+                    _new_conv,
+                    [session_state],
+                    [chatbot, conv_list, session_state],
+                    queue=False,
+                )
+
+                # ── 删除对话 ──
+                def _del_conv(conv_id, sess):
+                    choices, sess = delete_user_conversation(conv_id, sess)
+                    next_conv_id = sess.get("conversation_id")
+                    if next_conv_id:
+                        history, sess = load_conversation_messages(next_conv_id, sess)
+                    else:
+                        history = []
+                    return (
+                        history,
+                        gr.update(choices=choices, value=next_conv_id),
+                        sess,
+                    )
+
+                del_conv_btn.click(
+                    _del_conv,
+                    [conv_list, session_state],
+                    [chatbot, conv_list, session_state],
+                    queue=False,
+                )
+
+                # ── 发送消息 ──
+                def _handle_send(message, history, img, conv_id, sess):
+                    if not message.strip():
+                        return "", history, img, conv_id, sess
+                    reply, history_out, _, sess = respond(message, history, img, sess)
+                    # 刷新对话列表（标题可能更新）
+                    choices = list_user_conversations(sess)
+                    return (
+                        reply,
+                        history_out,
+                        None,
+                        gr.update(choices=choices, value=sess.get("conversation_id")),
+                        sess,
+                    )
 
                 send_btn.click(
                     _handle_send,
-                    [msg, chatbot, chat_image, session_state],
-                    [msg, chatbot, chat_image, session_state],
+                    [msg, chatbot, chat_image, conv_list, session_state],
+                    [msg, chatbot, chat_image, conv_list, session_state],
                 )
                 msg.submit(
-                    respond,
-                    [msg, chatbot, chat_image, session_state],
-                    [msg, chatbot, chat_image, session_state],
-                )
-
-                def _clear_chat(sess):
-                    return [], reset_chat_session(sess)
-
-                clear.click(
-                    _clear_chat,
-                    inputs=[session_state],
-                    outputs=[chatbot, session_state],
-                    queue=False,
+                    _handle_send,
+                    [msg, chatbot, chat_image, conv_list, session_state],
+                    [msg, chatbot, chat_image, conv_list, session_state],
                 )
 
     # 认证操作不走队列，避免被「开始巡检」等耗时任务堵住导致登录一直 heartbeat
