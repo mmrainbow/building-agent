@@ -83,13 +83,13 @@ class InspectionRecord(Base):
 
     user = relationship("User", back_populates="records")
     images = relationship(
-        "InspectionImage", back_populates="record", cascade="all, delete-orphan"
+        "ImageInspection", back_populates="record", cascade="all, delete-orphan"
     )
 
 
-class InspectionImage(Base):
+class ImageInspection(Base):
     """巡检中的单张图片 — 每张图有自己的检测结果。"""
-    __tablename__ = "inspection_images"
+    __tablename__ = "image_inspection"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     record_id = Column(
@@ -113,13 +113,13 @@ class Defect(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     image_id = Column(
-        Integer, ForeignKey("inspection_images.id", ondelete="CASCADE"), nullable=False
+        Integer, ForeignKey("image_inspection.id", ondelete="CASCADE"), nullable=False
     )
     defect_type = Column(String(50))
     area = Column(Float)
     box_coords = Column(JSON)
 
-    image = relationship("InspectionImage", back_populates="defects")
+    image = relationship("ImageInspection", back_populates="defects")
 
 
 # ── 对话 ─────────────────────────────────────────────────

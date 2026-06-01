@@ -2,7 +2,7 @@ import bcrypt
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .models import Defect, InspectionImage, InspectionRecord, User, UserRole
+from .models import Defect, ImageInspection, InspectionRecord, User, UserRole
 
 HAS_EXTENSION_YES = {"有加层", "存在加层", "yes", "true", "1", "has extension"}
 
@@ -62,7 +62,7 @@ def save_inspection(
     db.flush()
 
     # 图片级检测结果
-    img = InspectionImage(
+    img = ImageInspection(
         record_id=record.id,
         image_name=image_name,
         material=material,
@@ -115,7 +115,7 @@ def get_defect_type_distribution(db: Session, user_id: int | None = None):
     query = db.query(Defect.defect_type, func.count(Defect.id).label("cnt"))
     if user_id is not None:
         query = (
-            query.join(InspectionImage)
+            query.join(ImageInspection)
             .join(InspectionRecord)
             .filter(InspectionRecord.user_id == user_id)
         )
@@ -124,7 +124,7 @@ def get_defect_type_distribution(db: Session, user_id: int | None = None):
 
 
 def get_material_distribution(db: Session, user_id: int | None = None):
-    query = db.query(InspectionImage.material)
+    query = db.query(ImageInspection.material)
     if user_id is not None:
         query = query.join(InspectionRecord).filter(InspectionRecord.user_id == user_id)
     materials = [row[0] for row in query.all() if row[0] and row[0] != "未知"]
