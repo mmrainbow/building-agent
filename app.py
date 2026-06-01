@@ -1,9 +1,17 @@
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# 必须在 import services/db 之前加载，否则 INSPECTION_DB_URL 等已在 import 时固化
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 import gradio as gr
 
 from services import (
     TEXT,
     bootstrap_data,
     chat_with_llm,
+    reset_chat_session,
     do_logout,
     export_history_to_excel,
     handle_login,
@@ -115,30 +123,46 @@ with gr.Blocks(title=TEXT["title"]) as demo:
                 )
 
             with gr.TabItem("智能问答"):
-                gr.Markdown("基于最新巡检报告进行问答。")
+                gr.Markdown(
+                    "使用 ReAct Agent 与双层记忆（会话历史 + 长期偏好）。"
+                    "先在「图像巡检」完成检测后提问效果更佳；也可直接咨询建筑巡检问题。"
+                )
                 chatbot = gr.Chatbot(label="对话记录")
                 msg = gr.Textbox(label="问题", placeholder="例如：这个裂缝是否严重？")
-                clear = gr.Button("清空")
+                clear = gr.Button("清空对话")
 
                 msg.submit(
                     respond, [msg, chatbot, session_state], [msg, chatbot, session_state]
                 )
-                clear.click(lambda: [], None, chatbot, queue=False)
 
+                def _clear_chat(sess):
+                    return [], reset_chat_session(sess)
+
+                clear.click(
+                    _clear_chat,
+                    inputs=[session_state],
+                    outputs=[chatbot, session_state],
+                    queue=False,
+                )
+
+    # 认证操作不走队列，避免被「开始巡检」等耗时任务堵住导致登录一直 heartbeat
     login_btn.click(
         fn=handle_login,
         inputs=[login_user, login_pass],
         outputs=[login_msg, session_state, login_block, main_block],
+        queue=False,
     )
     reg_btn.click(
         fn=handle_register,
         inputs=[reg_user, reg_pass, reg_pass2],
         outputs=[reg_msg],
+        queue=False,
     )
     logout_btn.click(
         fn=do_logout,
         inputs=[],
         outputs=[session_state, login_block, main_block],
+        queue=False,
     )
 
 

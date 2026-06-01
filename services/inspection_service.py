@@ -106,6 +106,7 @@ def inspect_and_save(image, user_state):
         "last_defects": result["defects"],
         "last_report": result["report"],
         "last_report_no_rag": result.get("report_no_rag", ""),
+        "last_image": image,
     }
     # 拼接两份报告供前端显示
     report_no_rag = result.get("report_no_rag", "")
