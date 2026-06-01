@@ -19,11 +19,11 @@ CHAT_IMAGES_DIR = Path(__file__).parent.parent / "chat_images"
 
 
 def _save_image(image) -> str | None:
-    """numpy 图像 → chat_images/{uuid}.jpg，返回路径或 None。"""
+    """numpy 图像 → chat_images/{uuid}.jpg，返回相对路径。"""
     CHAT_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-    path = CHAT_IMAGES_DIR / f"{uuid.uuid4().hex}.jpg"
-    cv2.imwrite(str(path), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
-    return str(path)
+    filename = f"{uuid.uuid4().hex}.jpg"
+    cv2.imwrite(str(CHAT_IMAGES_DIR / filename), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+    return f"chat_images/{filename}"
 
 
 def _ensure_conversation(db: Any, user_state: dict) -> int:
@@ -127,8 +127,10 @@ def load_conversation_messages(conv_id, user_state) -> tuple:
                 continue
             entry = {"role": m.role}
             # 有图片的用户消息 → Gradio 图片格式
-            if m.role == "user" and m.image_path and os.path.exists(m.image_path):
-                entry["content"] = {"path": m.image_path}
+            if m.role == "user" and m.image_path:
+                full_path = Path(__file__).parent.parent / m.image_path
+                if full_path.exists():
+                    entry["content"] = {"path": str(full_path)}
             else:
                 entry["content"] = m.content or ""
             history.append(entry)
