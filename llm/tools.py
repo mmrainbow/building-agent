@@ -183,10 +183,7 @@ def build_tools(model_dir: str | None = None) -> dict[str, Any]:
     if model_dir is None:
         model_dir = str(MODEL_DIR)
 
-    from agent.skills.inspection_skill import InspectionSkill
-
     return {
-        "inspect_building": InspectionSkill(),
         "classify_material": CVToolWrapper(
             schema=MATERIAL_SCHEMA,
             predictor_factory=lambda: _make_material_predictor(model_dir),

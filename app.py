@@ -19,7 +19,6 @@ from services import (
     export_history_to_excel,
     handle_login,
     handle_register,
-    inspect_and_save,
     load_history,
     load_statistics,
     show_record_detail,
@@ -78,18 +77,58 @@ with gr.Blocks(title=TEXT["title"]) as demo:
 
         with gr.Tabs():
             with gr.TabItem("图像巡检"):
+                gr.Markdown("对同一建筑上传至少 **3 张**不同角度的照片，点击开始巡检。")
                 with gr.Row():
-                    with gr.Column():
-                        image_input = gr.Image(type="numpy", label="上传建筑图片")
-                        detect_btn = gr.Button("开始巡检", variant="primary")
-                    with gr.Column():
-                        report_output = gr.Textbox(label="巡检报告", lines=15)
-                        annotated_output = gr.Image(label="隐患标注图", type="numpy")
+                    with gr.Column(scale=1):
+                        image_input = gr.Image(type="numpy", label="上传图片")
+                        with gr.Row():
+                            add_btn = gr.Button("添加到列表", size="sm")
+                            clear_btn = gr.Button("清空", size="sm")
+                        status_md = gr.Markdown("📸 已收集 0 张 | 至少需要 3 张")
+                        inspect_btn = gr.Button("开始巡检", variant="primary")
 
-                detect_btn.click(
-                    fn=inspect_and_save,
-                    inputs=[image_input, session_state],
-                    outputs=[annotated_output, report_output, session_state],
+                    with gr.Column(scale=2):
+                        gallery = gr.Gallery(label="已收集的图片", columns=3, height=300)
+                        report_output = gr.Textbox(label="巡检报告", lines=20)
+
+                images_state = gr.State(value=[])
+
+                def _add_image(img, imgs):
+                    if img is None:
+                        return imgs, imgs, f"📸 已收集 {len(imgs)} 张 | 至少需要 3 张"
+                    imgs = imgs + [img]
+                    return imgs, imgs, f"📸 已收集 {len(imgs)} 张 | 至少需要 {'3' if len(imgs) < 3 else '3，可以开始巡检'} ✅"
+
+                add_btn.click(_add_image, [image_input, images_state], [images_state, gallery, status_md])
+
+                clear_btn.click(lambda: ([], [], "📸 已收集 0 张 | 至少需要 3 张"), None, [images_state, gallery, status_md], queue=False)
+
+                def _run_inspection(imgs, sess):
+                    if not sess:
+                        return "请先登录。", []
+                    if len(imgs) < 3:
+                        return f"至少需要 3 张图片，当前只有 {len(imgs)} 张。", imgs
+                    from agent.skills.inspection_skill import InspectionSkill
+                    skill = InspectionSkill()
+                    skill._ensure_predictors()
+                    from db import SessionLocal, InspectionRecord
+                    db = SessionLocal()
+                    try:
+                        record = InspectionRecord(user_id=sess["user_id"], status="collecting")
+                        db.add(record)
+                        db.flush()
+                        for img in imgs:
+                            skill._add_image(db, record, img)
+                        skill._run_inspection_on_all(db, record)
+                        report = record.report or "报告生成失败。"
+                        return report, []
+                    finally:
+                        db.close()
+
+                inspect_btn.click(
+                    _run_inspection,
+                    [images_state, session_state],
+                    [report_output, images_state],
                 )
 
             with gr.TabItem("历史记录"):
