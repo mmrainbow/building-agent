@@ -196,7 +196,7 @@ class InspectionAgent:
 
                     t_start = time.perf_counter()
                     result = execute_tool(
-                        self.tools, fn_name, image=image, **fn_args
+                        self.tools, fn_name, image=image, user_id=str(user_id), **fn_args
                     )
                     elapsed_ms = round((time.perf_counter() - t_start) * 1000)
 
