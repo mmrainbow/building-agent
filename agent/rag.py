@@ -19,10 +19,17 @@ from langchain_core.embeddings import Embeddings
 
 load_dotenv()
 
-LLM_API_KEY = os.getenv("LLM_API_KEY", "sk-your-api-key-here")
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
+# Embedding API — 默认复用 DASHSCOPE_API_KEY，也可单独配置 EMBEDDING_API_KEY
+EMBEDDING_API_KEY = os.getenv(
+    "EMBEDDING_API_KEY",
+    os.getenv("DASHSCOPE_API_KEY", ""),
+)
+EMBEDDING_BASE_URL = os.getenv(
+    "EMBEDDING_BASE_URL",
+    os.getenv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+)
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-v4")
 CHROMA_DB_DIR = Path(__file__).parent.parent / "chroma_db"
-EMBEDDING_MODEL = "text-embedding-v1"
 
 
 # ─── Embedding 实现 ───────────────────────────────────────────────
@@ -75,7 +82,7 @@ class _DashScopeEmbeddings(Embeddings):
 
 
 _embedding = _DashScopeEmbeddings(
-    api_key=LLM_API_KEY, base_url=LLM_BASE_URL, model=EMBEDDING_MODEL,
+    api_key=EMBEDDING_API_KEY, base_url=EMBEDDING_BASE_URL, model=EMBEDDING_MODEL,
 )
 
 _text_splitter = RecursiveCharacterTextSplitter(

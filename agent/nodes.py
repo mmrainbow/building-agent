@@ -15,7 +15,7 @@ from .rag import load_vectorstore, retrieve_regulations
 
 load_dotenv()
 
-LLM_API_KEY = os.getenv("LLM_API_KEY", "sk-your-api-key-here")
+LLM_API_KEY = os.getenv("DASHSCOPE_API_KEY", "")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen-turbo")
 MODEL_DIR = Path(__file__).parent.parent / "models"

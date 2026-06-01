@@ -9,3 +9,7 @@ __pycache__/
 models/*.pt
 models/*.pth
 inspection.db
+.env
+*.docx
+*.pickle
+chroma_db/
