@@ -76,6 +76,7 @@ knowledge_documents ─── 1:N ─── knowledge_chunks
 |------|------|------|------|
 | `id` | INTEGER | PK, AUTO | |
 | `user_id` | INTEGER | FK→users.id, NOT NULL | |
+| `status` | VARCHAR(20) | DEFAULT 'collecting' | collecting / done |
 | `report` | TEXT | | 综合所有图片汇总生成的巡检报告 |
 | `created_at` | DATETIME | DEFAULT NOW | |
 

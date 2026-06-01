@@ -78,7 +78,8 @@ class InspectionRecord(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    report = Column(Text)  # 综合所有图片汇总生成的巡检报告
+    status = Column(String(20), default="collecting")  # collecting | done
+    report = Column(Text)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="records")

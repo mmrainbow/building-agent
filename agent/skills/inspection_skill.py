@@ -1,23 +1,29 @@
-"""建筑巡检 Skill — 一次调用完成全套检测 + 报告生成 + 数据入库。
+"""建筑巡检 Skill — 同一建筑至少 3 张图，收集完毕后自动巡检 + 报告 + 入库。
 
-作为 Tool 注册给 LLM，替代逐个调用 classify_material / estimate_floors /
-detect_extension / detect_defects。LLM 说一句"全面巡检"就自动走完整流程。
+交互流程:
+    Turn 1: 用户上传图1 + "巡检" → 创建 InspectionRecord(status=collecting)
+    Turn 2: 用户上传图2         → 追加 ImageInspection
+    Turn 3: 用户上传图3         → 达到最小张数 → 全部 CV 检测 → 生成报告 → 入库
+    Turn N: 用户可继续追加更多图片，每次追加都重新汇总报告
 """
 
 import os
-from datetime import datetime, timezone
 from pathlib import Path
 
+import cv2
+import numpy as np
+
 MODEL_DIR = Path(__file__).parent.parent.parent / "models"
+MIN_IMAGES = 3
 
 INSPECT_SCHEMA = {
     "type": "function",
     "function": {
         "name": "inspect_building",
         "description": (
-            "建筑全面巡检：一次调用自动完成材质识别、楼层估算、加层检测、隐患检测，"
-            "生成标准中文巡检报告并保存到数据库。用户说'全面检测'或'巡检'时直接调用此工具，"
-            "无需单独调用 classify_material/estimate_floors/detect_defects 等工具。"
+            "建筑巡检 — 上传建筑图片进行检测。同一建筑需至少 3 张不同角度照片。"
+            "每次上传一张图片调用一次此工具。收集够图片后自动生成图文巡检报告并入库。"
+            "用户说'巡检''检测''看看这栋楼'时调用。"
         ),
         "parameters": {"type": "object", "properties": {}},
     },
@@ -25,7 +31,7 @@ INSPECT_SCHEMA = {
 
 
 class InspectionSkill:
-    """全面建筑巡检 — 内部调度 4 个 CV Predictor + LLM 报告生成 + 落库。"""
+    """多图巡检 Skill — 收集 → 检测 → 报告 → 入库。"""
 
     def __init__(self):
         self._predictors = None
@@ -54,41 +60,157 @@ class InspectionSkill:
 
     def execute(self, image=None, user_id=None, **kwargs) -> str:
         if image is None:
-            return "错误：需要建筑图片才能执行巡检。"
+            return self._status_message(user_id)
+        if not user_id:
+            return "错误：无法识别用户身份。"
 
         self._ensure_predictors()
+        db = self._get_db()
 
-        # 1. 并行跑 4 个 CV Predictor
-        material = self._predict("material", image)
-        floor = self._predict("floor", image)
-        extension = self._predict("extension", image)
-        defects = self._predict("defect", image)
+        try:
+            record = self._get_or_create_record(db, int(user_id))
+            seq = self._add_image(db, record, image)
 
-        # 2. 调用 LLM 生成巡检报告
-        report = self._generate_report(material, floor, extension, defects)
+            total = len(record.images or [])
+            if total < MIN_IMAGES:
+                return (
+                    f"📸 已接收第 {seq} 张图片（共 {total} 张）。\n"
+                    f"还需至少 {MIN_IMAGES - total} 张。请继续上传同一建筑的其他角度照片。\n"
+                    f"（当前巡检 ID: {record.id}）"
+                )
 
-        # 3. 入库
-        record_id = self._save_to_db(user_id, material, floor, extension, report, defects)
+            # 达到最小张数 → 全量巡检
+            self._run_inspection_on_all(db, record)
+            report = record.report or "报告生成失败。"
 
-        return (
-            f"=== 巡检完成 (record_id={record_id}) ===\n\n"
-            f"## 检测结果\n"
-            f"- 材质: {material}\n"
-            f"- 楼层: {floor}\n"
-            f"- 加层: {extension}\n"
-            f"- 隐患数: {len(defects) if isinstance(defects, list) else 0}\n\n"
-            f"## 巡检报告\n{report}"
+            return (
+                f"=== 巡检完成 (ID: {record.id}) ===\n\n"
+                f"共检测 {total} 张图片。\n\n{report}"
+            )
+
+        finally:
+            db.close()
+
+    # ── DB 操作 ──────────────────────────────────────────
+
+    def _get_db(self):
+        from db import SessionLocal
+
+        return SessionLocal()
+
+    def _get_or_create_record(self, db, user_id: int):
+        from db.models import InspectionRecord
+
+        record = (
+            db.query(InspectionRecord)
+            .filter(
+                InspectionRecord.user_id == user_id,
+                InspectionRecord.status == "collecting",
+            )
+            .order_by(InspectionRecord.created_at.desc())
+            .first()
         )
+        if record is None:
+            record = InspectionRecord(user_id=user_id, status="collecting")
+            db.add(record)
+            db.flush()
+        return record
 
-    def _predict(self, name: str, image) -> str | list:
+    def _add_image(self, db, record, image) -> int:
+        """保存图片到 image_inspection + 编码为 chat_images BLOB。"""
+        from db.models import ImageInspection, ChatImage, ChatMessage
+
+        # 编码 JPEG
+        _, buf = cv2.imencode(".jpg", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+        jpeg_bytes = buf.tobytes()
+
+        # 创建 ChatMessage + ChatImage（图片在对话中可见）
+        # conversation_id 暂不关联（非对话路径），后续可补
+        msg = ChatMessage(role="user", content=f"[巡检图片 {len(record.images or []) + 1}]")
+        db.add(msg)
+        db.flush()
+
+        chat_img = ChatImage(message_id=msg.id, data=jpeg_bytes)
+        db.add(chat_img)
+        db.flush()
+
+        # 创建 ImageInspection
+        img_entry = ImageInspection(
+            record_id=record.id,
+            image_name=f"巡检图_{len(record.images or []) + 1}",
+            chat_image_id=chat_img.id,
+        )
+        db.add(img_entry)
+        db.commit()
+        db.refresh(record)
+        return len(record.images or [])
+
+    # ── CV 检测 ──────────────────────────────────────────
+
+    def _run_inspection_on_all(self, db, record) -> None:
+        """对所有图片逐张 CV 检测，汇总生成报告。"""
+        img_entries = record.images or []
+        all_results = []
+
+        for img_entry in img_entries:
+            if img_entry.chat_image and img_entry.chat_image.data:
+                nparr = np.frombuffer(img_entry.chat_image.data, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if img is not None:
+                    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                    result = self._inspect_single(img)
+                    # 回写检测结果
+                    img_entry.material = result["material"]
+                    img_entry.floor = result["floor"]
+                    img_entry.has_extension = result["has_extension"]
+                    for d in result["defects"]:
+                        from db.models import Defect
+                        defect = Defect(
+                            image_id=img_entry.id,
+                            defect_type=str(d.get("type", "")),
+                            area=float(d.get("area", 0) or 0),
+                            box_coords=d.get("box", []),
+                        )
+                        db.add(defect)
+                    all_results.append(result)
+
+        # 生成汇总报告
+        report = self._generate_report(all_results)
+        record.report = report
+        record.status = "done"
+        db.commit()
+        db.refresh(record)
+
+    def _inspect_single(self, image) -> dict:
+        return {
+            "material": self._predict("material", image),
+            "floor": self._predict("floor", image),
+            "has_extension": self._predict("extension", image),
+            "defects": self._predict("defect", image) or [],
+        }
+
+    def _predict(self, name: str, image):
         try:
             result = self._predictors[name].predict([image])
             return result[0] if result else ("无" if name != "defect" else [])
         except Exception as e:
             return f"检测失败: {e}"
 
-    def _generate_report(self, material, floor, extension, defects) -> str:
-        prompt = self._build_report_prompt(material, floor, extension, defects)
+    # ── 报告生成 ──────────────────────────────────────────
+
+    def _generate_report(self, all_results: list[dict]) -> str:
+        """汇总所有图片的检测结果，调用 LLM 生成图文报告。"""
+        # 汇总材质/楼层/加层（取众数或合并）
+        materials = [r["material"] for r in all_results]
+        floors = [r["floor"] for r in all_results]
+        extensions = [r["has_extension"] for r in all_results]
+        all_defects = []
+        for i, r in enumerate(all_results):
+            for d in (r.get("defects") or []):
+                d["image_index"] = i + 1
+                all_defects.append(d)
+
+        prompt = self._build_prompt(materials, floors, extensions, all_defects)
         try:
             import requests
 
@@ -101,7 +223,7 @@ class InspectionSkill:
                 json={
                     "model": os.getenv("LLM_MODEL", "qwen-plus"),
                     "messages": [
-                        {"role": "system", "content": "你是建筑结构检测工程师，根据检测数据生成专业的中文巡检报告。"},
+                        {"role": "system", "content": "你是建筑结构检测工程师。根据多张建筑图片的检测数据，生成专业的中文巡检报告。引用具体图片编号（如'图1东立面'）佐证每个发现。"},
                         {"role": "user", "content": prompt},
                     ],
                     "temperature": 0.3,
@@ -114,45 +236,47 @@ class InspectionSkill:
         except Exception as e:
             return f"[LLM Error: {e}]"
 
-    def _build_report_prompt(self, material, floor, extension, defects) -> str:
-        defects_desc = "无明显隐患"
-        if defects and isinstance(defects, list) and len(defects) > 0:
-            items = []
-            for d in defects:
-                t = d.get("type", "未知")
-                a = d.get("area", 0)
-                items.append(f"- {t} (面积: {a:.0f}px²)")
-            defects_desc = "\n".join(items)
+    def _build_prompt(self, materials, floors, extensions, defects) -> str:
+        defect_lines = []
+        for d in defects:
+            defect_lines.append(
+                f"- 图{d.get('image_index', '?')}: {d.get('type', '未知')} "
+                f"(面积: {d.get('area', 0):.0f}px²)"
+            )
+        defect_text = "\n".join(defect_lines) if defect_lines else "无明显隐患"
 
         return (
-            "请根据以下检测数据生成一份 200-300 字的中文巡检报告：\n\n"
-            f"材质: {material}\n"
-            f"楼层: {floor}\n"
-            f"加层: {extension}\n"
-            f"隐患:\n{defects_desc}\n\n"
-            "格式要求: [检测概况] → [缺陷分析] → [综合评定] → [处理建议]"
+            f"共检测 {len(materials)} 张图片，请生成 300-400 字的中文巡检报告。\n\n"
+            f"材质: {', '.join(materials)}\n"
+            f"楼层: {', '.join(floors)}\n"
+            f"加层: {', '.join(extensions)}\n"
+            f"隐患汇总 (按图片编号):\n{defect_text}\n\n"
+            "格式: [检测概况(图片数+建筑概况)] → [逐图分析(引用图片编号)] → [综合评定] → [处理建议]\n"
+            "重要: 每个隐患描述必须标注来源图片编号。"
         )
 
-    def _save_to_db(self, user_id, material, floor, extension, report, defects) -> int | None:
+    def _status_message(self, user_id=None) -> str:
+        """无图片时返回当前收集状态。"""
         if not user_id:
-            return None
+            return "inspect_building: 需要上传建筑图片。"
+        db = self._get_db()
         try:
-            from db import SessionLocal, save_inspection
+            from db.models import InspectionRecord
 
-            db = SessionLocal()
-            try:
-                record = save_inspection(
-                    db=db,
-                    user_id=int(user_id),
-                    image_name=f"inspection_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
-                    material=str(material),
-                    floor=str(floor),
-                    has_extension=str(extension),
-                    report=report,
-                    defects=defects if isinstance(defects, list) else [],
+            record = (
+                db.query(InspectionRecord)
+                .filter(
+                    InspectionRecord.user_id == int(user_id),
+                    InspectionRecord.status == "collecting",
                 )
-                return record.id
-            finally:
-                db.close()
-        except Exception as e:
-            return f"入库失败: {e}"
+                .first()
+            )
+            if record is None:
+                return "当前没有进行中的巡检。上传建筑图片并说'巡检'开始。"
+            total = len(record.images or [])
+            return (
+                f"当前巡检 (ID: {record.id}) 已收集 {total} 张图片，"
+                f"至少需要 {MIN_IMAGES} 张。请继续上传。"
+            )
+        finally:
+            db.close()
