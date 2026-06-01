@@ -63,16 +63,23 @@ def add_message(
     role: str,
     content: str,
     metadata: dict | None = None,
-    image_path: str | None = None,
+    image_blob: bytes | None = None,
+    mime_type: str = "image/jpeg",
 ) -> ChatMessage:
     msg = ChatMessage(
         conversation_id=conversation_id,
         role=role,
         content=content,
-        image_path=image_path,
         metadata_=metadata or {},
     )
     db.add(msg)
+    db.flush()  # 获取 msg.id
+
+    # 图片存入 chat_images 表
+    if image_blob:
+        from .models import ChatImage
+        img = ChatImage(message_id=msg.id, mime_type=mime_type, data=image_blob)
+        db.add(img)
 
     conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
     if conv:

@@ -2,7 +2,7 @@
 
 > 引擎: SQLAlchemy 2 + SQLite（可切换 MySQL）  
 > 文件: `db/models.py`  
-> 总计: 10 张表，3 个枚举，60 个字段
+> 总计: 11 张表，3 个枚举
 
 ---
 
@@ -11,7 +11,7 @@
 ```
 users ─── 1:N ─── inspection_records ─── 1:N ─── defects
   │
-  ├── 1:N ─── conversations ─── 1:N ─── chat_messages
+  ├── 1:N ─── conversations ─── 1:N ─── chat_messages ─── 1:N ─── chat_images
   │
   ├── 1:N ─── conversation_memories
   ├── 1:N ─── feedbacks ─── → inspection_records / chat_messages
@@ -123,9 +123,24 @@ knowledge_documents ─── 1:N ─── knowledge_chunks
 | `conversation_id` | INTEGER | FK→conversations.id, CASCADE | |
 | `role` | VARCHAR(20) | NOT NULL | user / assistant / system |
 | `content` | TEXT | NOT NULL | 消息正文 |
-| `image_path` | VARCHAR(500) | NULLABLE | 用户上传图片的本地路径，如 `chat_images/a1b2c3.jpg` |
 | `metadata` | JSON | | `{tool_calls, tokens, latency_ms, sources}` |
 | `created_at` | DATETIME | DEFAULT NOW | |
+
+---
+
+## 5b. chat_images — 对话图片
+
+| 列名 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| `id` | INTEGER | PK, AUTO | |
+| `message_id` | INTEGER | FK→chat_messages.id, CASCADE | 属于哪条消息 |
+| `mime_type` | VARCHAR(50) | DEFAULT 'image/jpeg' | |
+| `data` | BLOB | NOT NULL | JPEG 图片字节 |
+| `created_at` | DATETIME | DEFAULT NOW | |
+
+> 图片以 BLOB 存入数据库，项目移动不丢数据。  
+> 渲染时 BLOB → 缓存文件 `chat_images/{message_id}.jpg` → Gradio 展示。  
+> 缓存文件可随时从数据库重建。
 
 ---
 

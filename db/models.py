@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     JSON,
+    LargeBinary,
     String,
     Text,
 )
@@ -141,12 +142,29 @@ class ChatMessage(Base):
     )
     role = Column(String(20), nullable=False)  # 'user' | 'assistant' | 'system'
     content = Column(Text, nullable=False)
-    image_path = Column(String(500))  # 用户上传图片的本地路径，如 chat_images/42.jpg
     # metadata 存储 tokens, latency_ms, sources (RAG引用) 等可选信息
     metadata_ = Column("metadata", JSON)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     conversation = relationship("Conversation", back_populates="messages")
+    images = relationship(
+        "ChatImage", back_populates="message", cascade="all, delete-orphan"
+    )
+
+
+class ChatImage(Base):
+    """用户上传的图片 — BLOB 存数据库，项目移动不丢数据。"""
+    __tablename__ = "chat_images"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    message_id = Column(
+        Integer, ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False
+    )
+    mime_type = Column(String(50), default="image/jpeg")
+    data = Column(LargeBinary, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    message = relationship("ChatMessage", back_populates="images")
 
 
 # ── 长期记忆 ─────────────────────────────────────────────

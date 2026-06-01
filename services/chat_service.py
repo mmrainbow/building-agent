@@ -13,17 +13,27 @@ from llm.agent_factory import get_chat_agent
 
 from .constants import TEXT
 
-CHAT_IMAGES_DIR = Path(__file__).parent.parent / "chat_images"
+_CACHE_DIR = Path(__file__).parent.parent / "chat_images"
+
+# ── 图片存储（BLOB 入库 + 缓存文件渲染）───────────────
+
+
+def _image_to_blob(image) -> bytes:
+    """numpy RGB → JPEG 字节。"""
+    _, buf = cv2.imencode(".jpg", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+    return buf.tobytes()
+
+
+def _blob_to_cache(message_id: int, blob: bytes) -> str:
+    """BLOB → chat_images/{id}.jpg 缓存文件，返回绝对路径供 Gradio 渲染。"""
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _CACHE_DIR / f"{message_id}.jpg"
+    if not path.exists():
+        path.write_bytes(blob)
+    return str(path)
+
 
 # ── Gradio 适配层 ──────────────────────────────────────────
-
-
-def _save_image(image) -> str | None:
-    """numpy 图像 → chat_images/{uuid}.jpg，返回相对路径。"""
-    CHAT_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-    filename = f"{uuid.uuid4().hex}.jpg"
-    cv2.imwrite(str(CHAT_IMAGES_DIR / filename), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
-    return f"chat_images/{filename}"
 
 
 def _ensure_conversation(db: Any, user_state: dict) -> int:
@@ -58,8 +68,8 @@ def chat_with_llm(message, history, user_state, image=None):
         full_message = _compose_message(message, user_state)
         img = image if image is not None else user_state.get("last_image")
 
-        # 保存图片到本地
-        image_path = _save_image(img) if img is not None else None
+        # 图片转 BLOB，传给 agent（由 _save_turn → add_message 入库）
+        image_blob = _image_to_blob(img) if img is not None else None
 
         result = get_chat_agent().run(
             user_id=user_state["user_id"],
@@ -67,7 +77,7 @@ def chat_with_llm(message, history, user_state, image=None):
             message=full_message,
             db=db,
             image=img,
-            user_image_path=image_path,
+            image_blob=image_blob,
         )
         response = (result.get("response") or "").strip() or TEXT["no_report"]
 
@@ -110,10 +120,7 @@ def list_user_conversations(user_state) -> list:
 
 
 def load_conversation_messages(conv_id, user_state) -> tuple:
-    """加载指定对话的消息到 Gradio Chatbot 格式，含图片。
-
-    Gradio Chatbot 图片格式: {"role": "user", "content": {"path": "..."}}
-    """
+    """加载对话历史到 Gradio Chatbot 格式。图片从 DB BLOB → 缓存文件 → 渲染。"""
     if not user_state or not user_state.get("user_id") or conv_id is None:
         return [], user_state
     from db import SessionLocal, get_conversation_messages
@@ -126,11 +133,11 @@ def load_conversation_messages(conv_id, user_state) -> tuple:
             if m.role not in ("user", "assistant"):
                 continue
             entry = {"role": m.role}
-            # 有图片的用户消息 → Gradio 图片格式
-            if m.role == "user" and m.image_path:
-                full_path = Path(__file__).parent.parent / m.image_path
-                if full_path.exists():
-                    entry["content"] = {"path": str(full_path)}
+            # 有图片的消息 → BLOB 写缓存文件 → Gradio 渲染
+            if m.role == "user" and m.images:
+                blob = m.images[0].data
+                cache_path = _blob_to_cache(m.id, blob)
+                entry["content"] = {"path": cache_path}
             else:
                 entry["content"] = m.content or ""
             history.append(entry)

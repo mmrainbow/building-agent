@@ -7,6 +7,7 @@ from .models import (
     Defect,
     Conversation,
     ChatMessage,
+    ChatImage,
     ConversationMemory,
     UserPreference,
     Feedback,
