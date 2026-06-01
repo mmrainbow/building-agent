@@ -527,6 +527,8 @@ api/
 - [x] **对话图片持久化** — `chat_images` 表 (BLOB 入库) + 缓存文件渲染，项目移动不丢数据
 - [x] **巡检表重构** — `InspectionRecord` 拆出 `ImageInspection` (图片级检测结果)，`Defect.record_id` → `Defect.image_id`
 - [x] **图片不存两份** — `image_inspection.chat_image_id` FK→`chat_images`，巡检对话复用同一张图片
+- [x] **InspectionSkill 多图巡检** — 收集 ≥3 张 → 批量 CV 检测 → LLM 汇总报告 → 入库。独立于 LLM Tool 体系
+- [x] **智能问答 vs 图像巡检分离** — 智能问答 Tab (5 Tool ReAct) / 图像巡检 Tab (多图工作流)，互不干扰
 - [x] **默认角色重命名** — `UserRole.inspector` → `UserRole.user`（普通用户）
 - [x] **数据模型总览** — 12 张表，`db/SCHEMA.md` 全量文档
 

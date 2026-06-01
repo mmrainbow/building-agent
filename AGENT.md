@@ -7,7 +7,7 @@ AI 驱动的建筑外立面巡检系统。上传建筑图片 → CV 模型检测
 
 ## 项目结构
 ```
-agent/          LangGraph DAG + ReAct Agent (orchestrator, memory_manager, rag, graph/nodes/state)
+agent/          LangGraph DAG + ReAct Agent + Skills (orchestrator, memory_manager, rag, skills/, graph/nodes/state)
 predictors/     CV模型预测器 (材质/楼层/加层/隐患) — 全部继承 BasePredictor
 llm/            LLM 客户端 + Tool + Agent工厂 + 对话核心
   client.py        通义千问 API (OpenAI 兼容)
@@ -112,13 +112,14 @@ GET  /health               数据库 + Ollama + 模型文件状态
 ```
 
 ## 双系统并存
-| | 旧系统 (graph.py) | 新系统 (orchestrator.py) |
+| | 图像巡检 | 智能问答 |
 |------|------|------|
-| 入口 | /predict, Gradio "图像巡检", CLI | /chat/send, Gradio "智能问答" |
-| 调度 | 静态 DAG (4 predictor 全跑) | ReAct Agent (AI 自主选 Tool) |
-| RAG | retrieve_regulations() 多维度 | search_regulations() 语义检索 |
-| 记忆 | 无 | MemoryManager → ConversationMemory |
-| 持久化 | InspectionRecord | ChatMessage |
+| 入口 | Gradio "图像巡检" Tab, /predict API, CLI | Gradio "智能问答" Tab, /chat/send API |
+| 调度 | InspectionSkill (多图收集→批量CV→报告) | ReAct Agent (LLM 自主选 5 Tool) |
+| 图片 | ≥3 张同一建筑，收集完才跑检测 | 单张即可，AI 按需调 CV 工具 |
+| RAG | — | search_regulations() ChromaDB 检索 |
+| 记忆 | — | MemoryManager → ConversationMemory |
+| 持久化 | InspectionRecord + ImageInspection + Defect | ChatMessage + ChatImage |
 
 ## 禁止事项
 - 不要删除 `models/` 下的 `.pt`/`.pth` 模型权重文件
@@ -135,7 +136,7 @@ GET  /health               数据库 + Ollama + 模型文件状态
 - `README.md`                  快速启动指南
 
 ## 当前开发阶段
-阶段 1 主体完成 — Agent 框架 + RAG + Chat API + 对话系统 + Memory。下一步：阶段 2 反馈系统。
+阶段 1 完成 — Agent 框架 + RAG + 对话 + Memory + 多图巡检。下一步：阶段 2 反馈系统。
 
 ## 快速命令
 ```bash
