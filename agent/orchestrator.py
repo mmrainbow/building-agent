@@ -57,15 +57,17 @@ def _make_user_message(text: str, has_image: bool = False) -> dict:
 
 
 def _history_to_messages(records: list) -> list[dict]:
-    """将 ChatMessage ORM 对象列表转为 LLM 消息格式。"""
+    """将 ChatMessage ORM 对象列表转为 LLM 消息格式。
+
+    tool 消息保留原 role，LLM 能区分"用户说了什么"和"工具返回了什么"，
+    避免 LLM 在后续轮次重复调用已执行过的工具。
+    """
     msgs = []
     for r in records:
-        role = r.role if r.role != "tool" else "user"  # tool 消息折叠到 user 上下文
         content = r.content or ""
-        # 截断过长消息，保持上下文在 token 限制内
         if len(content) > 2000:
             content = content[:2000] + "..."
-        msgs.append({"role": role, "content": content})
+        msgs.append({"role": r.role, "content": content})
     return msgs
 
 
