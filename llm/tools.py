@@ -123,7 +123,11 @@ class DefectToolWrapper(CVToolWrapper):
 
 
 class KnowledgeSearchTool:
-    """知识库检索 Tool — 当前用 SQLite LIKE 过渡，阶段 1.4 切 ChromaDB。"""
+    """建筑规范知识检索 Tool — ChromaDB 语义检索 + SQLite 用户记忆回退。
+
+    优先从 ChromaDB 检索建筑规范条文（agent/rag.py），
+    向量库不可用时回退到用户长期记忆（conversation_memories）。
+    """
 
     @property
     def schema(self):
@@ -132,6 +136,18 @@ class KnowledgeSearchTool:
     def execute(self, query=None, user_id=None, image=None, **kwargs) -> str:
         if not query:
             return "错误：请提供检索关键词。"
+
+        # 优先: ChromaDB 建筑规范检索
+        try:
+            from agent.rag import search_regulations
+
+            regs = search_regulations(query, k=5)
+            if regs:
+                return f"📋 建筑规范条文:\n\n{regs}"
+        except Exception as e:
+            print(f"[KnowledgeSearch] ChromaDB 检索异常: {e}")
+
+        # 回退: 用户长期记忆
         try:
             from db import SessionLocal, search_memories_by_keyword
 
@@ -140,16 +156,17 @@ class KnowledgeSearchTool:
                 results = search_memories_by_keyword(
                     db, user_id or 0, query, limit=5
                 )
-                if not results:
-                    return f"未找到与'{query}'相关的知识。"
-                items = [
-                    f"- [{m.memory_type}] {m.content[:200]}" for m in results
-                ]
-                return "检索到以下相关信息:\n" + "\n".join(items)
+                if results:
+                    items = [
+                        f"- [{m.memory_type}] {m.content[:200]}" for m in results
+                    ]
+                    return "💾 用户记忆（规范库不可用时的回退）:\n" + "\n".join(items)
             finally:
                 db.close()
-        except Exception as e:
-            return f"知识检索失败: {e}"
+        except Exception:
+            pass
+
+        return f"未找到与'{query}'相关的规范或记忆。"
 
 
 # ── Tool 构建工厂 ──────────────────────────────────────────

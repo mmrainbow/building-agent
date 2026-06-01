@@ -196,6 +196,44 @@ def load_vectorstore() -> Chroma | None:
 
 
 # ─── 检索入口 ─────────────────────────────────────────────────────
+
+def search_regulations(query: str, k: int = 5) -> str:
+    """语义检索 — 接受自由文本查询，从 ChromaDB 检索相关规范条文。
+
+    ReAct Agent 的 search_knowledge Tool 调用此函数。
+    向量库不可用时返回空字符串。
+    """
+    vs = load_vectorstore()
+    if vs is None:
+        return ""
+
+    try:
+        docs = vs.similarity_search(query, k=k)
+        if not docs:
+            return ""
+
+        items = []
+        for i, doc in enumerate(docs, 1):
+            c = doc.page_content.strip()
+            if not c:
+                continue
+            meta = doc.metadata
+            source = ""
+            if meta.get("para"):
+                source = f" [第{meta['para']}段]"
+            elif meta.get("page"):
+                source = f" [第{meta['page']}页]"
+            items.append(f"【规范 {i}{source}】{c}")
+
+        if items:
+            print(f"[RAG] search_regulations('{query[:40]}...') → {len(items)} 条")
+            return "\n\n".join(items)
+        return ""
+    except Exception as e:
+        print(f"[RAG] search_regulations 失败: {e}")
+        return ""
+
+
 def retrieve_regulations(
     vectorstore: Optional[Chroma],
     material: str,
