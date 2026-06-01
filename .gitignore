@@ -13,3 +13,4 @@ inspection.db
 *.docx
 *.pickle
 chroma_db/
+rag_data/

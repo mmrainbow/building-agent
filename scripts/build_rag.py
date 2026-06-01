@@ -2,7 +2,7 @@
 构建 RAG 向量库（独立运行脚本）
 
 用法:
-    python scripts/build_rag.py                # 自动扫描根目录的 docx/pdf
+    python scripts/build_rag.py                # 自动扫描 rag_data/ 的 docx/pdf
     python scripts/build_rag.py <文件路径>      # 指定文档路径
 """
 import sys
@@ -15,9 +15,10 @@ sys.path.insert(0, str(ROOT))
 if len(sys.argv) > 1:
     target = sys.argv[1]
 else:
-    doc_files = list(ROOT.glob("*.docx")) + list(ROOT.glob("*.pdf"))
+    rag_dir = ROOT / "rag_data"
+    doc_files = list(rag_dir.glob("*.docx")) + list(rag_dir.glob("*.pdf"))
     if not doc_files:
-        print("[ERROR] 未在项目根目录找到 .docx 或 .pdf 文件")
+        print("[ERROR] 未在 rag_data/ 目录找到 .docx 或 .pdf 文件")
         sys.exit(1)
     target = str(doc_files[0])
 

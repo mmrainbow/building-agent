@@ -178,9 +178,10 @@ def load_vectorstore() -> Chroma | None:
             print(f"[RAG] 加载向量库失败：{e}")
             return None
 
-    # 自动构建：优先找 .docx，其次 .pdf
+    # 自动构建：从 rag_data/ 目录优先找 .docx，其次 .pdf
     root = Path(__file__).parent.parent
-    doc_files = list(root.glob("*.docx")) + list(root.glob("*.pdf"))
+    rag_dir = root / "rag_data"
+    doc_files = list(rag_dir.glob("*.docx")) + list(rag_dir.glob("*.pdf"))
     if not doc_files:
         print("[RAG] 未找到文档，将使用内置规则知识库")
         return None
