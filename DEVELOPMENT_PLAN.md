@@ -518,9 +518,16 @@ api/
 - [x] **统一 Agent 实例** — `llm/agent_factory.py` 单例，api/ 和 services/ 共用
 - [x] **职责边界清理** — api/ 薄路由、services/ Gradio 适配、llm/ 核心逻辑
 - [x] **Gradio 对话 Tab 升级** — 图片上传 + tool 调用摘要显示
-- [x] **42 测试通过**
+- [x] **35 测试通过**（核心套件）
 
-> **架构决策**: ReAct 最大循环 10 次防死循环；Tool 超时 30s；短期记忆窗口 20 条消息；长期记忆 top_k=5；RAG top_k=3。Memory+RAG 延后到 API 调通后再做，先用 orchestrator 内置的简单历史消息注入。
+**1.7 对话体验增强 (1天)** ✅
+- [x] **记忆隔离** — 长期记忆从全局共享改为按对话隔离（`conversation_id` 过滤检索和 upsert）
+- [x] **防重复 Tool 调用** — `_history_to_messages` 保留 tool role，不伪装成 user
+- [x] **Gradio 对话列表侧栏** — 左侧列表显示历史对话，点击切换，支持新建/删除
+- [x] **对话图片持久化** — `chat_messages.image_path` 列 + `chat_images/` 本地存储，重开对话可查看已上传图片
+- [x] **默认角色重命名** — `UserRole.inspector` → `UserRole.user`（普通用户）
+
+> **架构决策**: ReAct 最大循环 10 次防死循环；Tool 超时 30s；短期记忆窗口 20 条消息；长期记忆 top_k=5；RAG top_k=3。
 
 ### 阶段2: 反馈系统 (1周, 1人)
 
