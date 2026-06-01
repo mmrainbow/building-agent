@@ -47,7 +47,7 @@ class MemoryManager:
         query = (current_query or "").strip()
         if query:
             memories = search_memories_by_keyword(
-                db, user_id=user_id, keyword=query, limit=10
+                db, user_id=user_id, keyword=query, conversation_id=conversation_id, limit=10
             )
 
         return {
@@ -63,7 +63,7 @@ class MemoryManager:
         llm_client: Any,
         recent_messages: list,
     ) -> None:
-        """从近期对话中提取一条长期记忆并落库（全局：conversation_id=None）。"""
+        """从近期对话中提取一条长期记忆并落库（隔离在对话范围内）。"""
         if len(recent_messages) < 2:
             return
 
@@ -105,7 +105,7 @@ class MemoryManager:
                 content=payload["content"],
                 memory_type=payload["memory_type"],
                 key=payload.get("key"),
-                conversation_id=None,
+                conversation_id=conversation_id,
                 importance=0.6,
             )
         except Exception:
