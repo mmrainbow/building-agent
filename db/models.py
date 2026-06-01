@@ -88,7 +88,7 @@ class InspectionRecord(Base):
 
 
 class ImageInspection(Base):
-    """巡检中的单张图片 — 每张图有自己的检测结果。"""
+    """巡检中的单张图片 — 每张图有自己的检测结果 + BLOB 本体。"""
     __tablename__ = "image_inspection"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -96,6 +96,7 @@ class ImageInspection(Base):
         Integer, ForeignKey("inspection_records.id", ondelete="CASCADE"), nullable=False
     )
     image_name = Column(String(255))
+    data = Column(LargeBinary)  # JPEG 图片字节，与 chat_images 同理 BLOB 入库
     material = Column(String(100))
     floor = Column(String(20))
     has_extension = Column(String(20))

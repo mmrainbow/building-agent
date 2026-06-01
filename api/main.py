@@ -187,7 +187,8 @@ async def predict(
     db: Session = Depends(get_db),
 ):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-        tmp.write(await image.read())
+        image_bytes = await image.read()
+        tmp.write(image_bytes)
         tmp_path = tmp.name
 
     try:
@@ -196,6 +197,7 @@ async def predict(
             db=db,
             user_id=user["user_id"],
             image_name=image.filename or "api_upload.jpg",
+            image_blob=image_bytes,
             material=result.get("material", ""),
             floor=result.get("floor", ""),
             has_extension=result.get("has_extension", ""),

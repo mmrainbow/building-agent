@@ -85,10 +85,15 @@ def inspect_and_save(image, user_state):
 
     db = SessionLocal()
     try:
+        # 图片编码为 JPEG 字节入库
+        _, buf = cv2.imencode(".jpg", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+        image_blob = buf.tobytes()
+
         save_inspection(
             db=db,
             user_id=user_state["user_id"],
             image_name=f"inspection_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}",
+            image_blob=image_blob,
             material=result["material"],
             floor=result["floor"],
             has_extension=result["has_extension"],

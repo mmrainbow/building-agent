@@ -50,6 +50,7 @@ def save_inspection(
     db: Session,
     user_id: int,
     image_name: str,
+    image_blob: bytes | None,
     material: str,
     floor: str,
     has_extension: str,
@@ -61,10 +62,11 @@ def save_inspection(
     db.add(record)
     db.flush()
 
-    # 图片级检测结果
+    # 图片级检测结果 + BLOB 入库
     img = ImageInspection(
         record_id=record.id,
         image_name=image_name,
+        data=image_blob,
         material=material,
         floor=floor,
         has_extension=has_extension,

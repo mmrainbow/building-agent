@@ -93,6 +93,7 @@ knowledge_documents ─── 1:N ─── knowledge_chunks
 | `id` | INTEGER | PK, AUTO | |
 | `record_id` | INTEGER | FK→inspection_records.id, CASCADE | |
 | `image_name` | VARCHAR(255) | | 上传文件名 |
+| `data` | BLOB | NULLABLE | JPEG 图片字节 |
 | `material` | VARCHAR(100) | | 材质检测结果 |
 | `floor` | VARCHAR(20) | | 楼层估算 |
 | `has_extension` | VARCHAR(20) | | 加层检测 |
