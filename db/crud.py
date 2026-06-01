@@ -50,23 +50,23 @@ def save_inspection(
     db: Session,
     user_id: int,
     image_name: str,
-    image_blob: bytes | None,
     material: str,
     floor: str,
     has_extension: str,
     report: str,
     defects: list[dict],
+    chat_image_id: int | None = None,
 ) -> InspectionRecord:
     # 巡检会话
     record = InspectionRecord(user_id=user_id, report=report)
     db.add(record)
     db.flush()
 
-    # 图片级检测结果 + BLOB 入库
+    # 图片级检测结果（图片本体引用 chat_images）
     img = ImageInspection(
         record_id=record.id,
         image_name=image_name,
-        data=image_blob,
+        chat_image_id=chat_image_id,
         material=material,
         floor=floor,
         has_extension=has_extension,
