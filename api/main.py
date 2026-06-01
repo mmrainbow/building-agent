@@ -13,6 +13,7 @@ from api.auth import (
     get_current_user,
     require_admin,
 )
+from api.chat import router as chat_router
 from api.schemas import (
     HealthResponse,
     InspectionResult,
@@ -66,6 +67,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Building Inspection API", lifespan=lifespan)
+app.include_router(chat_router)
 
 
 def _can_access_record(user: dict, record) -> bool:
