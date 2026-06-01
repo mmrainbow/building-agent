@@ -104,7 +104,7 @@ GET  /health            数据库 + Ollama + 模型文件状态
 
 ## 相关文档
 - `DEVELOPMENT_PLAN.md`  — 完整四阶段开发路线图 + 任务清单 + CC 提示词模板
-- `PROJECT_CO_BUILD.md`    — 项目共建文档 (定位/决策/变更日志)
+- `history_mk/PROJECT_CO_BUILD.md`    — 项目共建文档 (定位/决策/变更日志)
 - `README.md`              — 快速启动指南
 - `.env.example`           — 环境变量模板
 

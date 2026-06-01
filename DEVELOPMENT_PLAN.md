@@ -602,7 +602,7 @@ Gradio, SQLAlchemy, Ollama (qwen2:1.5b), YOLO, PyTorch。
 
 ## 相关文件
 - DEVELOPMENT_PLAN.md  完整开发路线图
-- PROJECT_CO_BUILD.md   项目共建文档
+- history_mk/PROJECT_CO_BUILD.md   项目共建文档
 - .env.example          环境变量模板
 ```
 
