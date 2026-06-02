@@ -1,27 +1,31 @@
 # AGENT.md — Building-Agent 项目上下文
 
 ## 项目简介
-AI 驱动的建筑外立面巡检系统。上传建筑图片 → CV 模型检测材质/楼层/加层/隐患 → 通义千问 LLM 生成中文巡检报告。
+AI 驱动的建筑外立面巡检系统。上传建筑图片 → CV 模型检测材质/楼层/加层/隐患 → 通义千问 LLM / 本地微调 VL 模型生成中文巡检报告。
 
-技术栈: Python 3.10+, LangGraph, FastAPI, Gradio 4, SQLAlchemy 2, 通义千问 API (qwen3.6-flash), YOLO (ultralytics), PyTorch, OpenCV, ChromaDB
+技术栈: Python 3.10+, LangGraph, FastAPI, Gradio 6, SQLAlchemy 2, 通义千问 API (qwen3.6-flash), YOLO (ultralytics), PyTorch, OpenCV, ChromaDB, Qwen2.5-VL (本地微调)
 
 ## 项目结构
 ```
 agent/          LangGraph DAG + ReAct Agent + Skills (orchestrator, memory_manager, rag, skills/, graph/nodes/state)
 predictors/     CV模型预测器 (材质/楼层/加层/隐患) — 全部继承 BasePredictor
-llm/            LLM 客户端 + Tool + Agent工厂 + 对话核心
-  client.py        通义千问 API (OpenAI 兼容)
-  tools.py         5 个 Tool (4 CV + search_knowledge)
-  agent_factory.py 共享 InspectionAgent 单例
-  chat_core.py     run_chat() 核心对话逻辑
-db/             SQLAlchemy ORM (10表, database, crud, chat_crud, memory_crud, feedback_crud)
+llm/            LLM 客户端 + Tool + Agent工厂 + 对话核心 + 本地VL模型
+  client.py          通义千问 API (OpenAI 兼容)
+  tools.py           5 个 Tool (4 CV + search_knowledge)
+  agent_factory.py   共享 InspectionAgent 单例
+  chat_core.py       run_chat() 核心对话逻辑
+  local_vl_model.py  Qwen2.5-VL 微调模型本地调用
+db/             SQLAlchemy ORM (12表, database, crud, chat_crud, memory_crud, feedback_crud)
 api/            FastAPI 薄路由层 (auth JWT, schemas, main, chat)
 services/       Gradio 适配层 (session管理 + UI回调 + 业务逻辑)
 app.py          Gradio Web UI 主入口
 main.py         CLI 命令行入口
+model_weights/  CV 模型权重文件 (gitignore)
+openspec/       OpenSpec 规格文件 (specs/ 6 capability + config.yaml)
 rag_data/       RAG 规范文档 (gitignore)
 chroma_db/      ChromaDB 向量库 (gitignore)
-tests/          测试 (pytest + httpx, 42 个用例)
+chat_images/    图片缓存目录 (gitignore, 可从DB重建)
+tests/          测试 (pytest + httpx, 35 个用例)
 scripts/        RAG 索引构建 + PDF 提取工具
 history_mk/    历史过程文档
 ```
@@ -30,7 +34,7 @@ history_mk/    历史过程文档
 ```
 api/       → 薄层: 参数校验 + 认证 + 调用 service → 格式化响应
 services/  → Gradio 适配: session 状态管理 + 上下文拼接 + UI 回调
-llm/       → 核心逻辑: LLM客户端 + Tool + Agent工厂 + 对话核心
+llm/       → 核心逻辑: LLM客户端 + Tool + Agent工厂 + 对话核心 + 本地VL
 agent/     → Agent 编排: ReAct循环 + 双层记忆 + RAG 检索
 db/        → 数据访问: SQLAlchemy ORM + CRUD
 ```
@@ -41,7 +45,8 @@ db/        → 数据访问: SQLAlchemy ORM + CRUD
 - API 认证用 JWT (python-jose)，密码用 bcrypt
 - 数据库默认 SQLite，可通过 `INSPECTION_DB_URL` 切 MySQL
 - LLM 调用走通义千问 DashScope API (OpenAI 兼容格式)
-- Embedding 调用默认复用 LLM key，也可单独配置 `EMBEDDING_API_KEY`
+- 本地微调 VL 模型通过 `LOCAL_VL_MODEL_ENABLED=true` 启用
+- Embedding 调用默认复用 LLM_API_KEY，也可单独配置 EMBEDDING_API_KEY
 - 环境变量命名: `UPPER_SNAKE_CASE`
 - api/ 不写业务逻辑，调 llm/ 或 services/
 - services 不依赖 FastAPI / Gradio 组件（auth_service 返回纯数据，UI 包装在 app.py）
@@ -49,27 +54,31 @@ db/        → 数据访问: SQLAlchemy ORM + CRUD
 
 ## 关键环境变量
 ```
-LLM_API_KEY          通义千问 Chat API 密钥
-EMBEDDING_API_KEY    Embedding API 密钥（默认复用 LLM_API_KEY）
-LLM_MODEL            大模型名称 (默认 qwen-plus)
-LLM_BASE_URL         LLM API 地址 (默认 dashscope.aliyuncs.com/compatible-mode/v1)
-EMBEDDING_MODEL      Embedding 模型 (默认 text-embedding-v3)
-INSPECTION_DB_URL    数据库连接 (默认 sqlite:///./inspection.db)
-JWT_SECRET_KEY       JWT 签名密钥
-INIT_ADMIN_USERNAME  初始管理员用户名
-INIT_ADMIN_PASSWORD  初始管理员密码
-OLLAMA_BASE_URL      Ollama 地址 (旧路径兼容)
+LLM_API_KEY             通义千问 Chat API 密钥
+EMBEDDING_API_KEY       Embedding API 密钥（默认复用 LLM_API_KEY）
+LLM_MODEL               大模型名称 (默认 qwen-plus)
+LLM_BASE_URL            LLM API 地址
+EMBEDDING_MODEL         Embedding 模型 (默认 text-embedding-v3)
+LOCAL_VL_MODEL_ENABLED  是否启用本地微调 VL 模型 (true/false)
+LOCAL_VL_MODEL_PATH     本地 merged 模型目录路径
+LOCAL_VL_DEVICE_MAP     模型加载设备分配 (默认 auto)
+LOCAL_VL_TORCH_DTYPE    模型推理精度 (默认 float16)
+LOCAL_VL_MAX_NEW_TOKENS 最大生成文本长度 (默认 512)
+INSPECTION_DB_URL       数据库连接 (默认 sqlite:///./inspection.db)
+JWT_SECRET_KEY          JWT 签名密钥
+INIT_ADMIN_USERNAME     初始管理员用户名
+INIT_ADMIN_PASSWORD     初始管理员密码
 ```
 
 ## 当前数据模型 (12 张表)
 - **User**: id, username, password_hash, role, is_active, created_at, last_login_at
 - **UserPreference**: id, user_id(FK,unique), language, report_style, preferred_model
-- **InspectionRecord**: id, user_id(FK), report, created_at → images(ImageInspection)
+- **InspectionRecord**: id, user_id(FK), status, report, created_at → images(ImageInspection)
 - **ImageInspection**: id, record_id(FK), chat_image_id(FK→chat_images), image_name, material, floor, has_extension → defects
 - **Defect**: id, image_id(FK→image_inspection), defect_type, area, box_coords(JSON)
-- **Conversation**: id, user_id(FK), title, model, message_count, created_at, updated_at → messages
+- **Conversation**: id, user_id(FK), title, model, message_count, created_at, updated_at → messages(ChatMessage)
 - **ChatMessage**: id, conversation_id(FK), role, content, metadata(JSON), created_at → images(ChatImage)
-- **ChatImage**: id, message_id(FK), mime_type, data(BLOB) → inspection_images(ImageInspection)
+- **ChatImage**: id, message_id(FK), mime_type, data(BLOB)
 - **ConversationMemory**: id, user_id(FK), conversation_id(FK), memory_type, key, content, chroma_id, importance, access_count
 - **Feedback**: id, user_id(FK), record_id(FK), message_id(FK), feedback_type, target_field, original_value, corrected_value, rating, comment
 - **KnowledgeDocument**: id, title, file_name, file_type, source_type, chunk_count, status → chunks
@@ -87,7 +96,7 @@ POST /token/refresh        刷新 token
 
 ### 巡检（需 JWT）
 ```
-POST /predict              上传图片 → 巡检结果 (旧 DAG)
+POST /predict              上传图片 → 巡检结果 (DAG + 可选本地VL)
 GET  /history              巡检列表 (分页)
 GET  /history/{id}         单条详情
 GET  /statistics           统计汇总
@@ -111,36 +120,41 @@ GET  /admin/users          用户列表
 GET  /health               数据库 + Ollama + 模型文件状态
 ```
 
-## 双系统并存
-| | 图像巡检 | 智能问答 |
-|------|------|------|
-| 入口 | Gradio "图像巡检" Tab, /predict API, CLI | Gradio "智能问答" Tab, /chat/send API |
-| 调度 | InspectionSkill (多图收集→批量CV→报告) | ReAct Agent (LLM 自主选 5 Tool) |
-| 图片 | ≥3 张同一建筑，收集完才跑检测 | 单张即可，AI 按需调 CV 工具 |
-| RAG | — | search_regulations() ChromaDB 检索 |
-| 记忆 | — | MemoryManager → ConversationMemory |
-| 持久化 | InspectionRecord + ImageInspection + Defect | ChatMessage + ChatImage |
+## 三条巡检路径
+
+| | 图像巡检 | 智能问答 | CLI /predict |
+|------|------|------|------|
+| 入口 | Gradio "图像巡检" Tab | Gradio "智能问答" Tab | /predict API, main.py |
+| 调度 | InspectionSkill (多图→批量CV→报告) | ReAct Agent (LLM 自主选 Tool) | LangGraph DAG (全跑) |
+| 报告生成 | LLM API | LLM API | 优先本地VL → 回退 LLM+RAG |
+| 记忆 | — | MemoryManager | — |
+| 持久化 | InspectionRecord + ImageInspection + Defect | ChatMessage + ChatImage | InspectionRecord |
 
 ## 禁止事项
 - 不要删除 `model_weights/` 下的 `.pt`/`.pth` 模型权重文件
-- 不要提交 `.env`、`chroma_db/`、`rag_data/`、`*.docx`
+- 不要提交 `.env`、`chroma_db/`、`rag_data/`、`*.docx`、`outputs/`、`chat_images/`
 - 不要在代码中硬编码密码、密钥或内网地址
-- 修改数据模型后必须同步更新测试
+- 修改数据模型后必须同步更新测试和 `db/SCHEMA.md`
 - 新模块不要经过 `services/__init__.py` import 链
 - 业务逻辑不放 app.py / api/ 层
 
 ## 相关文档
-- `DEVELOPMENT_PLAN.md`        完整开发路线图
-- `history_mk/merge_rag&memory.md` RAG+Memory 合并记录
-- `history_mk/PROJECT_CO_BUILD.md` 项目共建文档
-- `README.md`                  快速启动指南
+- `DEVELOPMENT_PLAN.md`             完整开发路线图
+- `db/SCHEMA.md`                    12 表结构全量文档
+- `history_mk/merge_rag&memory.md`  RAG+Memory 合并记录
+- `history_mk/LLM_FINE_TUNING_GUIDE.md` 微调模型部署指南
+- `history_mk/微调模型本地调用说明.md`    本地 VL 调用说明
+- `history_mk/PROJECT_CO_BUILD.md`  项目共建文档
+- `openspec/specs/`                 6 个 capability 规格文件
+- `README.md`                       快速启动指南
 
 ## 当前开发阶段
-阶段 1 完成 — Agent 框架 + RAG + 对话 + Memory + 多图巡检。下一步：阶段 2 反馈系统。
+阶段 1 完成 — Agent + RAG + 对话 + Memory + 多图巡检 + 本地 VL 模型。下一步：阶段 2 反馈系统。
 
 ## 快速命令
 ```bash
 python app.py                           # Gradio Web UI
 uvicorn api.main:app --port 8000        # FastAPI
-python -m pytest tests/ -v              # 测试 (42 passed)
+python -m pytest tests/ -v              # 测试 (35 passed)
+python scripts/build_rag.py             # 构建 RAG 向量库
 ```

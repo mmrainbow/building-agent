@@ -531,6 +531,10 @@ api/
 - [x] **智能问答 vs 图像巡检分离** — 智能问答 Tab (5 Tool ReAct) / 图像巡检 Tab (多图工作流)，互不干扰
 - [x] **默认角色重命名** — `UserRole.inspector` → `UserRole.user`（普通用户）
 - [x] **数据模型总览** — 12 张表，`db/SCHEMA.md` 全量文档
+- [x] **本地 VL 微调模型** — `llm/local_vl_model.py` Qwen2.5-VL 本地调用，优先 VL 报告 → 回退 LLM+RAG
+- [x] **embedding API 修复** — 原生 DashScope 端点，batch_size=10，模型名 v4→v3
+- [x] **LLM_API_KEY / EMBEDDING_API_KEY 分离** — 各自独立配置，embedding 默认复用 LLM key
+- [x] **OpenSpec 规格化** — `openspec/specs/` 6 个 capability spec + `config.yaml`
 
 > **架构决策**: ReAct 最大循环 10 次防死循环；Tool 超时 30s；短期记忆窗口 20 条消息；长期记忆 top_k=5；RAG top_k=3。
 
