@@ -21,9 +21,7 @@ load_dotenv()
 
 EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", os.getenv("LLM_API_KEY", ""))
 EMBEDDING_BASE_URL = os.getenv(
-    "EMBEDDING_BASE_URL",
-    os.getenv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
-)
+    "EMBEDDING_BASE_URL",os.getenv("LLM_BASE_URL", " "),)
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-v3")
 CHROMA_DB_DIR = Path(__file__).parent.parent / "chroma_db"
 
@@ -47,7 +45,7 @@ class _DashScopeEmbeddings(Embeddings):
             "Content-Type": "application/json",
         }
         all_embeddings = []
-        batch_size = 25
+        batch_size = 10  # text-embedding-v3 单批上限 10 条
         total = len(texts)
 
         try:
