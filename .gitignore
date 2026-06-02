@@ -10,6 +10,8 @@ model_weights/*.pt
 model_weights/*.pth
 inspection.db
 outputs/
+qwen2_5_vl_3b_building_merged/*
+!qwen2_5_vl_3b_building_merged/README.md
 ollama-test/
 .env
 *.docx

@@ -1,38 +1,51 @@
 # AGENT.md — Building-Agent 项目上下文
 
 ## 项目简介
-AI 驱动的建筑外立面巡检系统。上传建筑图片 → CV 模型检测材质/楼层/加层/隐患 → 本地微调 Qwen2.5-VL 模型生成中文巡检报告。
+AI 驱动的建筑外立面巡检系统 — 多 Agent 协同架构。
 
-技术栈: Python 3.10+, FastAPI, Gradio 6, SQLAlchemy 2, vLLM, YOLO (ultralytics), PyTorch, OpenCV, ChromaDB, Qwen2.5-VL (本地微调)
+**Manager Agent** (通义千问 API) 负责理解用户意图、调度 CV 工具、解读结果。
+**Report Agent** (本地微调 Qwen2.5-VL) 负责生成专业中文巡检报告。
+
+技术栈: Python 3.10+, FastAPI, Gradio 6, SQLAlchemy 2, transformers, YOLO (ultralytics), PyTorch, OpenCV, ChromaDB, 通义千问 API, Qwen2.5-VL (本地微调)
+
+## 多 Agent 架构
+
+```
+用户 ──→ Manager Agent (通义千问) ──→ CV 工具 (本地)
+                │                        ├─ classify_material
+                │                        ├─ estimate_floors
+                │                        ├─ detect_extension
+                │                        ├─ detect_defects
+                │                        └─ search_knowledge
+                │
+                └──→ generate_report ──→ Report Agent (本地 Qwen2.5-VL)
+                                              └─ localhost:8000
+```
 
 ## 项目结构
 ```
-agent/          ReAct Agent + Skills (orchestrator, memory_manager, rag, skills/)
-predictors/     CV模型预测器 (材质/楼层/加层/隐患) — 全部继承 BasePredictor
-llm/            LLM 客户端 + Tool + Agent工厂 + 对话核心 + 本地VL模型
-  client.py          OpenAI 兼容客户端 (native + prompt 双模式)
-  tools.py           5 个 Tool (4 CV + search_knowledge)
-  agent_factory.py   共享 InspectionAgent 单例 (默认本地 vLLM)
+agent/          Manager Agent (orchestrator, memory_manager, rag, skills/)
+predictors/     CV模型预测器 (材质/楼层/加层/隐患)
+llm/            LLM 客户端 + 6 个 Tool + Agent工厂 + Report Agent 服务
+  client.py          OpenAI 兼容客户端
+  tools.py           6 个 Tool (4 CV + search_knowledge + generate_report)
+  agent_factory.py   Manager Agent 单例 (默认远程 API)
   chat_core.py       run_chat() 核心对话逻辑
-  local_vl_model.py  Qwen2.5-VL 微调模型本地加载 (transformers)
-  react_parser.py    ReAct 文本 tool_call 解析器
-db/             SQLAlchemy ORM (12表, database, crud, chat_crud, memory_crud, feedback_crud)
+  local_vl_model.py  Report Agent — Qwen2.5-VL 本地加载+推理
+  react_parser.py    ReAct 文本 tool_call 解析器 (prompt 回退用)
+db/             SQLAlchemy ORM (12表)
 api/            FastAPI 薄路由层 (auth JWT, schemas, main, chat)
-services/       Gradio 适配层 (session管理 + UI回调 + 业务逻辑)
-  constants.py      用户可见文案字典 TEXT
-  auth_service.py   登录/注册/引导逻辑
-  chat_service.py   智能问答回调
-  history_service.py 历史记录查询
-  statistics_service.py 统计图表
+services/       Gradio 适配层
 app.py          Gradio Web UI 主入口
-scripts/        工具脚本 (vLLM 启动, RAG 构建)
-model_weights/  CV 模型权重文件 (5 个 .pt/.pth, gitignore)
+scripts/
+  launch_local_llm.py  Report Agent 服务启动 (FastAPI + transformers)
+  build_rag.py         RAG 向量库构建
+model_weights/  CV 模型权重 (5 个文件, gitignore)
+qwen2_5_vl_3b_building_merged/  微调模型权重 (gitignore, 需手动获取)
 chroma_db/      ChromaDB 向量库 (gitignore)
-rag_data/       RAG 规范文档 (gitignore)
-chat_images/    图片缓存目录 (gitignore, 可从DB重建)
 history_mk/     历史过程文档
-openspec/       OpenSpec 规格文件 (10 个 capability spec)
-tests/          测试 (pytest + httpx)
+openspec/       OpenSpec 规格 (10 cap specs)
+tests/          测试
 ```
 
 ## 职责划分
@@ -134,25 +147,19 @@ GET  /health               数据库 + Ollama + 模型文件状态
 | 记忆 | — | MemoryManager |
 | 持久化 | InspectionRecord + ImageInspection + Defect | ChatMessage + ChatImage |
 
-## LLM 后端
+## 启动方式
 
-### 本地 vLLM (默认)
 ```bash
-# 终端 1: 启动 vLLM 服务
-python scripts/launch_vllm.py
+# 终端 1: 启动 Report Agent (本地微调模型)
+conda activate building-agent
+python scripts/launch_local_llm.py
 
-# 终端 2: 启动应用 (.env 已默认配置)
+# 终端 2: 启动应用 (Manager + Gradio)
+conda activate building-agent
 python app.py
 ```
 
-### 远程 API (备用)
-```bash
-set USE_LOCAL_LLM=false
-set LLM_API_KEY=sk-xxx
-set LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-set LLM_MODEL=qwen3.6-flash-2026-04-16
-python app.py
-```
+Manager Agent 默认使用通义千问 API（`USE_LOCAL_LLM=false`），Report Agent 在 `localhost:8000` 提供报告生成服务。
 
 ## 禁止事项
 - 不要删除 `model_weights/` 下的 `.pt`/`.pth` 模型权重文件
@@ -176,7 +183,7 @@ python app.py
 
 ## 快速命令
 ```bash
-python scripts/launch_vllm.py           # 启动 vLLM 本地 LLM 服务
+python scripts/launch_local_llm.py      # 启动本地 LLM 服务
 python app.py                           # Gradio Web UI
 uvicorn api.main:app --port 8000        # FastAPI
 python scripts/build_rag.py             # 构建 RAG 向量库

@@ -163,6 +163,53 @@ class LocalVLModelClient:
             clean_up_tokenization_spaces=False,
         )[0].strip()
 
+    def chat(
+        self,
+        messages: list[dict],
+        max_new_tokens: int | None = None,
+        temperature: float = 0.7,
+    ) -> str:
+        """纯文本对话 — 不走图像，直接 tokenize 消息列表生成回复。
+
+        Args:
+            messages: OpenAI 格式消息列表 [{"role":"system","content":"..."}, ...]
+            max_new_tokens: 最大生成 token 数
+            temperature: 采样温度
+
+        Returns:
+            生成的文本回复
+        """
+        self.load()
+        # 用 processor 的 chat_template 格式化消息
+        text = self.processor.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        inputs = self.processor(
+            text=[text],
+            padding=True,
+            return_tensors="pt",
+        )
+        inputs = inputs.to(self.model.device)
+        do_sample = temperature > 0
+        generate_kwargs = {
+            "max_new_tokens": max_new_tokens or LOCAL_VL_MAX_NEW_TOKENS,
+            "do_sample": do_sample,
+        }
+        if do_sample:
+            generate_kwargs["temperature"] = temperature
+        generated_ids = self.model.generate(**inputs, **generate_kwargs)
+        generated_ids = [
+            output_ids[len(input_ids):]
+            for input_ids, output_ids in zip(inputs.input_ids, generated_ids)
+        ]
+        return self.processor.batch_decode(
+            generated_ids,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        )[0].strip()
+
     def generate_report(
         self,
         image_path: str,
@@ -189,3 +236,8 @@ def generate_local_inspection_report(
         has_extension=has_extension,
         defects=defects,
     )
+
+
+def chat_local(messages: list[dict], max_new_tokens: int | None = None, temperature: float = 0.7) -> str:
+    """纯文本对话 — 模块级快捷函数。"""
+    return get_local_vl_client().chat(messages, max_new_tokens=max_new_tokens, temperature=temperature)

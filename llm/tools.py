@@ -169,6 +169,88 @@ class KnowledgeSearchTool:
         return f"未找到与'{query}'相关的规范或记忆。"
 
 
+REPORT_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "generate_report",
+        "description": (
+            "调用本地专业报告 Agent（微调 Qwen2.5-VL 模型）生成正式建筑巡检报告。"
+            "当你已完成所需检测工具调用、收集了足够数据后，应调用此工具来生成专业报告。"
+            "Report Agent 能生成比你自己写更专业、更符合住建规范的报告。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "material": {
+                    "type": "string",
+                    "description": "材质检测结果，如'面砖'、'涂料'",
+                },
+                "floor": {
+                    "type": "string",
+                    "description": "楼层检测结果，如'18层'",
+                },
+                "has_extension": {
+                    "type": "string",
+                    "description": "加层检测结果，如'有加层'或'无加层'",
+                },
+                "defects_summary": {
+                    "type": "string",
+                    "description": "隐患检测结果摘要，简述检测到的缺陷类型和数量",
+                },
+            },
+            "required": [],
+        },
+    },
+}
+
+
+class ReportAgentTool:
+    """Report Agent Tool — 将检测结果和图片发送给本地 Report Agent 生成专业报告。
+
+    通过 HTTP POST 调用 localhost 上运行的 Report Agent 服务。
+    """
+
+    def __init__(self, report_agent_url: str | None = None):
+        self.url = (report_agent_url or os.getenv("REPORT_AGENT_URL", "http://localhost:8000")).rstrip("/")
+
+    @property
+    def schema(self):
+        return REPORT_SCHEMA
+
+    def execute(self, image=None, material="", floor="", has_extension="", defects_summary="", **kwargs) -> str:
+        if image is None:
+            return "错误：需要图片才能生成报告。请先确保用户已上传图片。"
+
+        import base64
+        import tempfile
+
+        # 编码图片为 base64
+        _, buf = __import__("cv2").imencode(".jpg", image)
+        image_b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
+
+        payload = {
+            "image_base64": image_b64,
+            "material": material or "Unknown",
+            "floor": floor or "Unknown",
+            "has_extension": has_extension or "Unknown",
+            "defects": [],  # defects_summary 是文本摘要，不是原始缺陷列表
+        }
+
+        try:
+            resp = __import__("requests").post(
+                f"{self.url}/v1/report",
+                json=payload,
+                timeout=120,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                elapsed = data.get("elapsed_seconds", 0)
+                return f"📋 **专业巡检报告** (生成耗时 {elapsed:.1f}s):\n\n{data['report']}"
+            return f"Report Agent 调用失败: HTTP {resp.status_code}"
+        except Exception as e:
+            return f"Report Agent 不可达 ({self.url}): {e}"
+
+
 # ── Tool 构建工厂 ──────────────────────────────────────────
 
 
@@ -201,6 +283,7 @@ def build_tools(model_dir: str | None = None) -> dict[str, Any]:
             predictor_factory=lambda: _make_defect_predictor(model_dir),
         ),
         "search_knowledge": KnowledgeSearchTool(),
+        "generate_report": ReportAgentTool(),
     }
 
 
