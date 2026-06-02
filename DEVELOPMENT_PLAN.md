@@ -11,9 +11,10 @@
 | 阶段0: 基础夯实 | **已完成** | 2026-05-26 |
 | 阶段0.5: 数据模型架构补强 | **已完成** | 2026-05-26 |
 | 阶段1: Agent 框架 + RAG + 对话系统 | **已完成** | 2026-06-01 |
-| 阶段2: 反馈系统 | 待开始 | — |
-| 阶段3: 多 Agent 协同 | 待开始 | — |
-| 阶段4: 服务化部署 | 待开始 | — |
+| 阶段1.5: 本地 LLM 服务化 + 架构精简 | **已完成** | 2026-06-02 |
+| 阶段2: 多 Agent 协同 | **进行中** | — |
+| 阶段3: 反馈系统 | 待开始 | — |
+| 阶段4: 服务化部署 (Docker/CICD) | 待开始 | — |
 | 阶段5: 前后端分离 (可选) | 待开始 | — |
 
 ---
@@ -28,50 +29,40 @@
 
 ### 1.2 现有架构
 
-当前为 **模块化单体** 架构，技术栈和分层如下：
+当前为 **多 Agent 协同** 架构：
 
 ```
-┌─────────────────────────────────────────────────┐
-│  用户入口                                        │
-│  ├── app.py      Gradio Web UI (146行，薄路由层) │
-│  ├── main.py     CLI 命令行入口 (25行)            │
-│  └── api/main.py FastAPI REST API (290行)        │
-├─────────────────────────────────────────────────┤
-│  业务逻辑层 (2026-05-26 新增)                    │
-│  └── services/   app.py 拆分产物                  │
-│      ├── auth_service.py        认证逻辑          │
-│      ├── inspection_service.py 巡检核心流程       │
-│      ├── history_service.py    历史记录管理       │
-│      ├── statistics_service.py 统计分析           │
-│      └── chat_service.py       LLM 智能问答       │
-├─────────────────────────────────────────────────┤
-│  认证层 (2026-05-26 新增)                        │
-│  └── api/        FastAPI 扩展                    │
-│      ├── auth.py     JWT 签发/验证/角色依赖注入    │
-│      └── schemas.py  统一 Pydantic 请求/响应模型   │
-├─────────────────────────────────────────────────┤
-│  业务编排层                                      │
-│  └── agent/      LangGraph 工作流引擎             │
-│      ├── graph.py    DAG 图定义 (load→并行4节点→汇总)│
-│      ├── nodes.py    各检测节点 + LLM报告生成      │
-│      └── state.py    TypedDict 状态定义            │
-├─────────────────────────────────────────────────┤
-│  AI 模型层                                       │
-│  └── predictors/ CV 推理模块                      │
-│      ├── base.py        BasePredictor 基类        │
-│      ├── material.py    EfficientNetV2 材质识别    │
-│      ├── floor.py       YOLO + RANSAC 楼层检测     │
-│      ├── added_floor.py EfficientNetV2 加层判断    │
-│      ├── hidden_danger.py YOLO-OBB 隐患检测       │
-│      └── floor_recognition.py 几何算法辅助         │
-├─────────────────────────────────────────────────┤
-│  数据层                                         │
-│  └── db/         SQLAlchemy ORM                 │
-│      ├── models.py     User/InspectionRecord/Defect │
-│      ├── database.py   SQLite/MySQL 引擎管理       │
-│      └── crud.py       用户认证 + 记录CRUD + 统计   │
-└─────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│  用户入口                                               │
+│  ├── app.py           Gradio Web UI (4 Tab)              │
+│  └── api/main.py      FastAPI REST API                   │
+├─────────────────────────────────────────────────────────┤
+│  Manager Agent (通义千问 API)                            │
+│  ├── agent/orchestrator.py   ReAct 推理 + 工具调度        │
+│  ├── agent/memory_manager.py 双层记忆管理                 │
+│  └── llm/client.py           OpenAI 兼容客户端            │
+├─────────────────────────────────────────────────────────┤
+│  工具层 (6 个 Tool)                                     │
+│  ├── classify_material / estimate_floors                 │
+│  ├── detect_extension / detect_defects                   │
+│  ├── search_knowledge (ChromaDB RAG)                     │
+│  └── generate_report → Report Agent                     │
+├─────────────────────────────────────────────────────────┤
+│  Report Agent (本地微调 Qwen2.5-VL)                      │
+│  ├── scripts/launch_local_llm.py   FastAPI 服务 (:8000)  │
+│  └── llm/local_vl_model.py        模型加载 + 推理        │
+├─────────────────────────────────────────────────────────┤
+│  CV 模型层                                              │
+│  └── predictors/   YOLO + EfficientNetV2 (本地 GPU)      │
+├─────────────────────────────────────────────────────────┤
+│  数据层                                                 │
+│  └── db/            SQLAlchemy ORM (12 表)              │
+└─────────────────────────────────────────────────────────┘
 ```
+
+**两条巡检路径 (Path C 已删除):**
+- **图像巡检 Tab**: InspectionSkill — 多图收集≥3张 → 全量CV → LLM报告
+- **智能问答 Tab**: Manager Agent — 推理 → 自主选Tool → 需要时委托 Report Agent
 
 **关键技术组件**:
 | 类别 | 技术 | 用途 |
@@ -88,32 +79,30 @@
 | 导出 | openpyxl | Excel 报告导出 |
 | 可视化 | Plotly | 统计图表 |
 
-### 1.3 可复用部分
+### 1.3 可复用部分 (当前状态)
 
-| 模块 | 可直接复用 | 需要改造 |
-|------|-----------|---------|
-| `predictors/` | 全部6个预测器及其 `BasePredictor` 基类可直接复用 | 增加统一配置管理和模型热加载 |
-| `db/models.py` | User/InspectionRecord/Defect 三个模型可复用 | 需扩展 User 表增加反馈相关字段 |
-| `db/crud.py` | 用户认证 (`authenticate_user`, `create_user`) 可复用 | 需增加反馈 CRUD 和知识库检索 |
-| `db/database.py` | `init_db()`, `SessionLocal`, `get_db()` 可复用 | 连接池配置可优化 |
-| `agent/graph.py` | LangGraph 编排模式可复用 | 需扩展为多 Agent 编排 |
-| `agent/nodes.py` | 各检测节点可复用 | 报告节点需接入知识库上下文 |
-| `agent/state.py` | TypedDict 模式可复用 | 需扩展状态字段 |
-| `api/main.py` | FastAPI 路由结构可参考 | 权限需升级为 JWT |
+| 模块 | 状态 |
+|------|------|
+| `predictors/` | ✅ 全部 5 个预测器可复用，无需改造 |
+| `db/models.py` | ✅ 12 表，User/Feedback/Knowledge 表已扩展 |
+| `db/*_crud.py` | ✅ 5 个 CRUD 模块，含 feedback/memory/chat |
+| `agent/orchestrator.py` | ✅ Manager Agent — ReAct 编排 |
+| `llm/client.py` | ✅ OpenAI 兼容，native+prompt 双模式 |
+| `llm/tools.py` | ✅ 6 个 Tool，含 generate_report |
+| `api/` | ✅ JWT 认证 + 角色权限 |
 
-### 1.4 需要重构或重写的部分
+### 1.4 已修复的问题
 
 | 问题 | 严重程度 | 状态 |
 |------|---------|------|
-| `app.py` 单体巨石 | 高 | **已修复**: 拆为 `services/` 下 5 个模块 + 146行薄路由层 |
-| 认证机制不统一 | 高 | **已修复**: FastAPI 统一使用 JWT Bearer，含角色权限中间件 |
-| 无 JWT 无角色权限中间件 | 高 | **已修复**: `api/auth.py` 实现 `get_current_user` + `require_admin` |
-| 无测试 | 中 | **已修复**: `tests/` 目录 27 个用例覆盖认证/巡检/历史/健康检查 |
+| `app.py` 单体巨石 | 高 | **已修复**: 拆为 `services/` 下 5 个模块 |
+| 认证机制不统一 | 高 | **已修复**: JWT Bearer + 角色权限 |
+| 无测试 | 中 | **已修复**: 11 个测试文件 |
+| 无知识库 | 中 | **已修复**: ChromaDB + RAG |
+| Agent 编排简单 | 低 | **已修复**: ReAct Agent + 多Agent协同 |
+| 无反馈机制 | 中 | 待实现 (阶段3) |
 | 无日志系统 | 中 | 待实现 |
-| 无反馈机制 | 中 | 完全缺失，但这是关键的新功能 |
-| 无知识库 | 中 | LLM 问答仅基于最近一次报告，无历史知识检索 |
-| Agent 编排简单 | 低 | 目前只是 LangGraph 的 DAG，非真正多 Agent 协作 |
-| 模型权重未版本化 | 中 | 依赖手动放置 .pt/.pth 文件 |
+| 无 Docker/CICD | 中 | 待实现 (阶段4) |
 
 ---
 
@@ -253,31 +242,44 @@ GET    /api/feedback/stats        # 反馈统计 (准确率变化趋势)
 | 统计更新事件 | Redis Pub/Sub | 解耦、异步、轻量 |
 | 知识库索引更新 | 消息队列 (RabbitMQ) | 持久化、重试机制 |
 
-### 2.5 多 Agent 协同
+### 2.5 多 Agent 协同 ✅ 已完成 2026-06-02
 
-**现状**: 使用 LangGraph 定义了单个 DAG 工作流（load_image → material/floor/extension/defect 并行 → report 汇总），这不是真正的多 Agent 系统。
-
-**设计方案: 主控 Agent + 专项 Agent**
+**架构: Manager Agent (通义千问) + Report Agent (本地微调 Qwen2.5-VL)**
 
 ```
-                  ┌─────────────┐
-                  │ Orchestrator │  (主控 Agent)
-                  │  Agent       │  负责: 任务分解、Agent 调度、结果汇总
-                  └──┬───┬───┬──┘
-          ┌──────────┘   │   └──────────┐
-          ▼              ▼              ▼
-    ┌──────────┐  ┌──────────┐  ┌──────────┐
-    │Material  │  │Floor     │  │Defect    │
-    │Agent     │  │Agent     │  │Agent     │
-    └──────────┘  └──────────┘  └──────────┘
-          │              │              │
-          └──────────────┼──────────────┘
-                         ▼
-                  ┌──────────┐
-                  │ Report   │
-                  │ Agent    │
-                  └──────────┘
+用户 ──→ Manager Agent (通义千问) ──→ CV 工具 (本地)
+               │                        ├─ classify_material
+               │                        ├─ estimate_floors
+               │                        ├─ detect_extension
+               │                        ├─ detect_defects
+               │                        └─ search_knowledge
+               │
+               └──→ generate_report ──→ Report Agent (本地 Qwen2.5-VL)
+                                             └─ localhost:8000
 ```
+
+**设计原则**: 让每个模型做自己擅长的事。
+- Manager Agent (通义千问 API): 推理、意图理解、工具调度 — 原生支持 function calling
+- Report Agent (本地 Qwen2.5-VL): 看图 + 结构化数据 → 专业中文巡检报告 — 微调训练的目标
+
+**实现要点**:
+- `llm/tools.py`: 新增第 6 个 Tool `generate_report`，通过 HTTP 调用 `localhost:8000/v1/report`
+- `scripts/launch_local_llm.py`: Report Agent 独立进程，FastAPI + transformers 加载模型
+- `agent/orchestrator.py`: System Prompt 重写为 Manager 角色，明确报告委托规则
+- CV 工具在本地 GPU 运行，Manager 通过 function calling 调度
+- Manager 默认使用远程 API (`USE_LOCAL_LLM=false`)
+- 简单问答直接回复，不需要调用 Report Agent（如"你好"、"什么材质"）
+
+**已删除的旧代码**:
+- `main.py` (CLI入口)
+- `agent/graph.py`, `agent/nodes.py`, `agent/state.py` (LangGraph DAG)
+- `services/inspection_service.py` (旧巡检服务)
+- `scripts/launch_vllm.py/.bat` (Windows 不支持 vLLM)
+
+**新增文件**:
+- `scripts/launch_local_llm.py` — Report Agent 服务
+- `llm/react_parser.py` — ReAct 文本解析 (prompt 回退模式)
+- `qwen2_5_vl_3b_building_merged/README.md` — 模型文档
 
 **Agent 通信协议 (JSON 消息格式)**:
 
@@ -426,132 +428,60 @@ POST   /api/chat/rag               # 基于知识库的问答 (已有 /api/chat�
 
 **目标**: 通义千问 API 替代本地 Ollama，Predictor 封装为 Tool 让 AI 自主选择调用，打通 思维链 + Memory + RAG。
 
-#### 核心架构决策
+**已完成的关键任务**:
+- LLM 客户端 (`llm/client.py`): 通义千问 API，OpenAI 兼容，支持 native + prompt 双模式
+- 5 个 Tool (`llm/tools.py`): 4 CV + search_knowledge
+- ReAct Agent (`agent/orchestrator.py`): LLM 自主选择 Tool，最大 10 轮循环
+- MemoryManager: 短期 20 条 + 长期记忆提取
+- ChromaDB RAG: 建筑规范语义检索
+- Chat API + Gradio 智能问答 Tab
+- InspectionSkill: 多图巡检独立工作流
+- 本地 VL 模型 (`llm/local_vl_model.py`): transformers 加载 Qwen2.5-VL
 
-| 决策点 | 选择 | 理由 |
-|--------|------|------|
-| LLM 服务 | 通义千问 API (qwen-plus) | 免费额度，OpenAI 兼容，原生 function calling |
-| Tool 调度 | LLM 自主决策 (ReAct 循环) | 替代静态 DAG，AI 根据图像内容选择调用哪些工具 |
-| Embedding | 通义千问 text-embedding-v4 | 与 LLM 同平台，免费额度充足 |
-| Agent 框架 | 自建 ReAct + LangGraph State | 轻量可控，无需引入 LangChain Agent |
+### 阶段1.5: 本地 LLM 服务化 + 架构精简 (0.5天) ✅ 已完成 2026-06-02
 
-#### Agent 执行流程
+**目标**: 将本地模型部署为 OpenAI 兼容服务，删除不再使用的 CLI/DAG 路径。
 
-```
-用户发送图片 + 问题
-        │
-        ▼
-┌─────────────────────────────────────────────┐
-│            MemoryManager                     │
-│  1. 组装上下文                               │
-│     ├── 短期: 最近 20 条对话消息              │
-│     ├── 长期: ConversationMemory 关键词检索   │
-│     └── RAG:  ChromaDB 知识库检索            │
-└──────────────┬──────────────────────────────┘
-               │ messages + tools
-               ▼
-┌─────────────────────────────────────────────┐
-│           AgentOrchestrator (ReAct)          │
-│                                              │
-│  ┌─── LLM 决定 ──▶ 调用 Tool ──▶ 返回结果 ──┐│
-│  │                                          ││
-│  └──── 循环直到 LLM 生成最终回答 ◀───────────┘│
-│                                              │
-│  可用 Tools:                                  │
-│  - classify_material  (材质识别)              │
-│  - estimate_floors     (楼层估算)              │
-│  - detect_extension    (加层检测)              │
-│  - detect_defects      (隐患检测)              │
-│  - search_knowledge    (知识库检索)            │
-└──────────────┬──────────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────────┐
-│            后处理                             │
-│  ├── 保存消息到 ChatMessage                    │
-│  ├── 自动提取记忆 → ConversationMemory        │
-│  └── 返回 AI 回复 + tool_call_log             │
-└─────────────────────────────────────────────┘
-```
+- [x] **本地模型服务化** — `scripts/launch_local_llm.py`: FastAPI + transformers 加载 Qwen2.5-VL，暴露 `/v1/chat/completions` 和 `/v1/report` 端点
+- [x] **LLMClient 双模式** — `tool_call_mode=native` (原生 function calling) / `prompt` (ReAct 文本解析)
+- [x] **ReAct 文本解析器** — `llm/react_parser.py`: 从模型输出提取 `<tool_call>` 标记
+- [x] **删除废弃路径** — 移除 `main.py`, `agent/graph.py`, `agent/nodes.py`, `agent/state.py`, `services/inspection_service.py`, `tests/test_predict.py`
+- [x] **Windows 兼容** — vLLM 不支持 Windows，改用 FastAPI + transformers 自建服务
 
-#### 新增目录
+### 阶段2: 多 Agent 协同 (进行中)
+
+**目标**: Manager Agent (通义千问) + Report Agent (本地微调模型) 各司其职。
+
+**已完成**:
 
 ```
-llm/                    # 新增: LLM 客户端 + Tool 封装
-├── __init__.py
-├── client.py           # 通义千问 API (OpenAI 兼容)
-└── tools.py            # 4个 Predictor → Tool 封装 + search_knowledge
-
-agent/
-├── orchestrator.py     # 新增: ReAct Agent 主循环
-├── memory_manager.py   # 新增: 三层上下文检索 + 记忆提取
-├── graph.py            # 保留: 原有 DAG (CLI 兼容)
-├── nodes.py / state.py # 保留
-
-api/
-├── chat.py             # 新增: Chat API 路由
+用户 ──→ Manager Agent (通义千问) ──→ CV 工具 (本地: 4 CV + RAG)
+               │                        
+               └──→ generate_report ──→ Report Agent (本地 Qwen2.5-VL, :8000)
 ```
 
-#### 任务清单
+- [x] **Manager + Report 分离** — Manager 用远程 API 推理+工具调度，Report 用本地模型生成报告
+- [x] **generate_report 工具** — `llm/tools.py` 新增第 6 个 Tool，通过 HTTP 调用 `localhost:8000/v1/report`
+- [x] **Report Agent 服务** — `scripts/launch_local_llm.py` 独立进程，`/v1/report` 端点接收图片+数据→返回报告
+- [x] **System Prompt 重写** — Manager 角色明确，含报告委托规则（简单问答不调用 Report Agent）
+- [x] **配置切换** — `USE_LOCAL_LLM=false`，Manager 默认远程 API，`REPORT_AGENT_URL` 指向本地
+- [x] **架构精简** — 删除 Path C: `main.py`, `agent/graph.py/nodes.py/state.py`, `services/inspection_service.py`
 
-**1.1 LLM 客户端 (0.5天)** ✅
-- [x] **通义千问 API 客户端** — `llm/client.py`: `chat(messages, tools)` + `chat_with_tools()` ReAct 自动循环 — **复杂度: 低, 可 CC**
-- [x] **环境变量** — `DASHSCOPE_API_KEY`, `LLM_MODEL` (默认 qwen-plus), `LLM_BASE_URL` — **复杂度: 低, 可 CC**
+**待完成**:
 
-**1.2 Tool 封装 (0.5天)** ✅
-- [x] **Predictor → Tool 适配器** — `llm/tools.py`: 4 个 Predictor 包装为 Function Call schema + executor (延迟加载) + DefectToolWrapper 中文格式化 — **复杂度: 中, 可 CC**
-- [x] **知识库检索 Tool** — `search_knowledge(query)` → SQLite LIKE 过渡 — **复杂度: 中, 可 CC**
+- [ ] **Agent 注册中心** — `agent/registry.py`: Agent 注册/发现/调度 — **复杂度: 中, 可 CC**
+- [ ] **Agent 通信协议** — `agent/protocol.py`: 标准化 JSON 消息格式 — **复杂度: 低, 可 CC**
+- [ ] **ReviewAgent** — 审核其他 Agent 输出，基于知识库检查报告一致性 — **复杂度: 高, 可 CC**
+- [ ] **Report Agent 多路召回** — 同时生成多份报告供对比选择
 
-**1.3 Agent 编排 (1天)** ✅
-- [x] **ReAct 循环** — `agent/orchestrator.py`: InspectionAgent 类，上下文组装 → LLM 调用 → tool_calls 执行 → 持久化消息 — **复杂度: 高, 可 CC**
-- [x] **System Prompt** — 建筑巡检专家角色 + 5 个工具说明 + 使用原则 + 输出格式 — **复杂度: 中, 可 CC**
-- [x] **Tool 调用日志** — 记录 name/input/output/elapsed_ms 到 ChatMessage.metadata — **复杂度: 低, 可 CC**
+> **架构决策**: Manager 使用通义千问 API 因原生支持 function calling；Report Agent 使用本地模型因微调训练的目标就是报告生成。两者通过 HTTP 通信，可独立扩展。
 
-**1.4 Memory + RAG (1天)** ✅
-- [x] **MemoryManager** — `agent/memory_manager.py`: 双层记忆（近期消息 + LLM 提取长期记忆）→ ConversationMemory
-- [x] **ChromaDB 接入** — KnowledgeSearchTool 优先查 ChromaDB 规范 (`agent/rag.py` search_regulations)，回退用户记忆
-
-**1.5 Chat API (0.5天)** ✅
-- [x] **对话端点** — `api/chat.py`: POST `/chat/send` (支持图片), GET `/chat/conversations`, GET/DELETE `/chat/conversations/{id}`
-
-**1.6 集成验证 + 代码清理 (0.5天)** ✅
-- [x] **统一 Agent 实例** — `llm/agent_factory.py` 单例，api/ 和 services/ 共用
-- [x] **职责边界清理** — api/ 薄路由、services/ Gradio 适配、llm/ 核心逻辑
-- [x] **Gradio 对话 Tab 升级** — 图片上传 + tool 调用摘要显示
-- [x] **35 测试通过**（核心套件）
-
-**1.7 对话体验增强 (1天)** ✅
-- [x] **记忆隔离** — 长期记忆从全局共享改为按对话隔离（`conversation_id` 过滤检索和 upsert）
-- [x] **防重复 Tool 调用** — `_history_to_messages` 保留 tool role，不伪装成 user
-- [x] **Gradio 对话列表侧栏** — 左侧列表显示历史对话，点击切换，支持新建/删除
-- [x] **对话图片持久化** — `chat_images` 表 (BLOB 入库) + 缓存文件渲染，项目移动不丢数据
-- [x] **巡检表重构** — `InspectionRecord` 拆出 `ImageInspection` (图片级检测结果)，`Defect.record_id` → `Defect.image_id`
-- [x] **图片不存两份** — `image_inspection.chat_image_id` FK→`chat_images`，巡检对话复用同一张图片
-- [x] **InspectionSkill 多图巡检** — 收集 ≥3 张 → 批量 CV 检测 → LLM 汇总报告 → 入库。独立于 LLM Tool 体系
-- [x] **智能问答 vs 图像巡检分离** — 智能问答 Tab (5 Tool ReAct) / 图像巡检 Tab (多图工作流)，互不干扰
-- [x] **默认角色重命名** — `UserRole.inspector` → `UserRole.user`（普通用户）
-- [x] **数据模型总览** — 12 张表，`db/SCHEMA.md` 全量文档
-- [x] **本地 VL 微调模型** — `llm/local_vl_model.py` Qwen2.5-VL 本地调用，优先 VL 报告 → 回退 LLM+RAG
-- [x] **embedding API 修复** — 原生 DashScope 端点，batch_size=10，模型名 v4→v3
-- [x] **LLM_API_KEY / EMBEDDING_API_KEY 分离** — 各自独立配置，embedding 默认复用 LLM key
-- [x] **OpenSpec 规格化** — `openspec/specs/` 6 个 capability spec + `config.yaml`
-
-> **架构决策**: ReAct 最大循环 10 次防死循环；Tool 超时 30s；短期记忆窗口 20 条消息；长期记忆 top_k=5；RAG top_k=3。
-
-### 阶段2: 反馈系统 (1周, 1人)
+### 阶段3: 反馈系统 (1周, 1人)
 
 **目标**: 收集用户纠错和评分数据，建立数据飞轮。
 
 - [ ] **Feedback API** — `api/feedback.py`: POST/GET 反馈，GET 统计 (表 + CRUD 已在 0.5) — **复杂度: 中, 可 CC**
 - [ ] **Gradio 反馈 UI** — 报告详情 + 对话消息旁增加纠错/评分 — **复杂度: 中, 可 CC**
-
-### 阶段3: 多 Agent 协同 (2-3周, 1-2人)
-
-**目标**: 从单 ReAct Agent 演进到主控+专项 Agent 协作。
-
-- [ ] **Agent 注册中心** — `agent/registry.py`: Agent 注册/发现/调度 — **复杂度: 中, 可 CC**
-- [ ] **Agent 通信协议** — `agent/protocol.py`: 标准化消息格式 — **复杂度: 低, 可 CC**
-- [ ] **ReviewAgent** — 审核其他 Agent 输出，基于知识库检查报告一致性 — **复杂度: 高, 可 CC**
 
 ### 阶段4: 服务化部署 (1-2周, 1人)
 
@@ -610,7 +540,7 @@ Gradio, SQLAlchemy, Ollama (qwen2:1.5b), YOLO, PyTorch。
 - 环境变量命名: UPPER_SNAKE_CASE
 
 ## 当前阶段
-[由 Tech Lead 更新，如: "阶段0 - 模块拆分中"]
+阶段2 进行中 — 多 Agent 协同基础架构已搭建 (Manager + Report)，Agent 注册中心/通信协议/ReviewAgent 待实现。下一步: 阶段3 反馈系统。
 
 ## 禁止事项
 - 不要删除或修改 model_weights/ 下的模型权重文件
@@ -752,57 +682,49 @@ feature分支 → ruff/pytest 通过 → PR → 人工Review → squash merge �
 
 ## 五、附录
 
-### A. 推荐新增目录结构
+### A. 当前目录结构 (2026-06-02)
 
 ```
 building-agent/
-├── AGENT.md                     # ✅ AI Agent 共享上下文入口
+├── AGENT.md                     # ✅ 项目上下文
 ├── DEVELOPMENT_PLAN.md          # ✅ 本文档
-├── pyproject.toml               # [待新增] 项目配置 (ruff, black, pytest)
-├── .github/
-│   └── pull_request_template.md # [待新增] PR 模板
-├── services/                    # ✅ 业务逻辑层 (阶段0)
-│   ├── __init__.py
-│   ├── constants.py             # ✅ TEXT 文案字典
-│   ├── auth_service.py          # ✅ 认证逻辑
-│   ├── inspection_service.py    # ✅ 巡检核心流程
-│   ├── history_service.py       # ✅ 历史记录管理
-│   ├── statistics_service.py    # ✅ 统计分析
-│   └── chat_service.py          # ✅ LLM 智能问答
-├── knowledge/                   # [待新增] 知识库模块 (阶段1)
-│   ├── __init__.py
-│   ├── vector_store.py
-│   ├── loader.py
-│   ├── embedding.py
-│   └── retriever.py
-├── export/                      # [待新增] 导出工具 (阶段1)
-│   ├── __init__.py
-│   └── feedback_exporter.py
-├── scripts/                     # [待新增] 运维脚本 (阶段3)
-│   ├── healthcheck.py
-│   └── download_models.sh
-├── tests/                       # ✅ 测试目录 (阶段0)
-│   ├── __init__.py
-│   ├── conftest.py              # ✅ fixtures + mock agent
-│   ├── test_auth.py             # ✅ 16 个认证用例
-│   ├── test_predict.py          # ✅ 3 个巡检用例
-│   ├── test_history.py          # ✅ 5 个历史/权限用例
-│   └── test_health.py           # ✅ 3 个健康检查用例
-├── api/                         # ✅ JWT 认证 + 新端点 (阶段0)
-│   ├── auth.py                  # ✅ JWT 签发/验证/角色依赖
-│   ├── schemas.py               # ✅ Pydantic 请求/响应模型
-│   ├── feedback.py              # [待新增] 反馈 API (阶段1)
-│   ├── knowledge.py             # [待新增] 知识库 API (阶段1)
-│   └── main.py                  # ✅ 重写: HTTP Basic→JWT, +7 端点
-├── agent/                       # [待扩展] (阶段2)
-│   ├── registry.py              # [待新增]
-│   ├── protocol.py              # [待新增]
-│   ├── orchestrator.py          # [待新增]
-│   └── ...
-├── db/                          # [待扩展] (阶段1)
-│   ├── feedback_crud.py         # [待新增]
-│   └── ...
-└── app.py                       # ✅ 146行 薄UI层 (-73%)
+├── .env                         # ✅ 多Agent环境配置
+├── agent/                       # ✅ Manager Agent
+│   ├── orchestrator.py          # ✅ ReAct Agent 编排
+│   ├── memory_manager.py        # ✅ 双层记忆
+│   ├── rag.py                   # ✅ ChromaDB 检索
+│   └── skills/
+│       └── inspection_skill.py  # ✅ 多图巡检工作流
+├── llm/                         # ✅ LLM 核心
+│   ├── client.py                # ✅ OpenAI 兼容 (native+prompt双模式)
+│   ├── tools.py                 # ✅ 6 个 Tool
+│   ├── agent_factory.py         # ✅ Manager Agent 单例
+│   ├── chat_core.py             # ✅ 对话核心
+│   ├── local_vl_model.py        # ✅ Report Agent 模型加载
+│   └── react_parser.py          # ✅ ReAct 文本解析
+├── predictors/                  # ✅ CV 模型 (5个)
+├── db/                          # ✅ ORM (12表 + 5 CRUD)
+├── api/                         # ✅ FastAPI (auth, chat, history, statistics, health)
+├── services/                    # ✅ Gradio 适配 (5模块)
+├── scripts/
+│   ├── launch_local_llm.py      # ✅ Report Agent 服务
+│   ├── build_rag.py             # ✅ RAG 构建
+│   └── inspect_pdf.py           # ✅ PDF 提取
+├── qwen2_5_vl_3b_building_merged/  # 🆕 微调模型 (gitignored, README.md 除外)
+├── model_weights/               # ✅ CV 权重 (gitignored)
+├── chroma_db/                   # ✅ 向量库 (gitignored)
+├── openspec/                    # ✅ 10 cap specs + config.yaml
+├── tests/                       # ✅ 11 测试文件
+└── app.py                       # ✅ Gradio Web UI
+```
+
+### B. 推荐新增依赖
+
+```
+# requirements.txt 已包含
+# 新增:
+#   - (无) — 本地 LLM 服务使用已有的 fastapi + uvicorn + transformers
+#   - 已移除: vllm (Windows 不支持)
 ```
 
 ### B. 推荐新增依赖
@@ -842,32 +764,29 @@ black>=24.0.0
 ### C. 系统架构演进图
 
 ```
-当前                                      目标 (阶段3完成后)
+当前 (阶段2 进行中)                       目标 (阶段4完成后)
 
-┌─────────┐ ┌──────┐                    ┌──────────┐  ┌──────────┐
-│ Gradio  │ │ CLI  │                    │  Gradio  │  │  React   │
-│   UI    │ │      │                    │    UI    │  │  (PWA)   │
-└────┬────┘ └──┬───┘                    └────┬─────┘  └────┬─────┘
-     │         │                            │             │
-     └────┬────┘                            └──────┬──────┘
-          │                                       │
-┌─────────┴─────────┐                   ┌─────────┴─────────┐
-│    app.py (530行)  │                   │  Nginx Gateway    │
-│    单体巨石        │                   │  :8000            │
-└─────────┬─────────┘                   └─────────┬─────────┘
-          │                                       │
-    ┌─────┴─────┐                    ┌────────────┼────────────┐
-    │           │                    │            │            │
-┌───┴───┐ ┌────┴────┐         ┌─────┴────┐ ┌─────┴────┐ ┌─────┴────┐
-│Agent  │ │FastAPI  │         │  Auth    │ │Inspect   │ │Feedback  │
-│Graph  │ │:8000    │         │  :8001   │ │:8002     │ │:8003     │
-└───┬───┘ └────┬────┘         └─────┬────┘ └─────┬────┘ └─────┬────┘
-    │          │                    │            │            │
-    └────┬─────┘                    └──────┬─────┴─────┬──────┘
-         │                                │           │
-    ┌────┴────┐                      ┌────┴────┐ ┌────┴────┐
-    │ SQLite  │                      │  MySQL  │ │ChromaDB │
-    └─────────┘                      └─────────┘ └─────────┘
+┌──────────────────┐                   ┌──────────┐  ┌──────────┐
+│    Gradio UI     │                   │  Gradio  │  │  React   │
+│   (app.py)       │                   │    UI    │  │  (PWA)   │
+└────────┬─────────┘                   └────┬─────┘  └────┬─────┘
+         │                                  │             │
+┌────────┴─────────┐                   ┌────┴─────────────┴────┐
+│ Manager Agent    │                   │   Nginx Gateway :8000 │
+│ (通义千问 API)    │                   └──────────┬────────────┘
+│ + 6 Tools        │                              │
+│ + MemoryManager  │                   ┌──────────┼────────────┐
+└────────┬─────────┘                   │          │            │
+         │                        ┌────┴────┐ ┌───┴────┐ ┌────┴────┐
+┌────────┴─────────┐             │  Auth   │ │Inspect │ │Feedback │
+│ Report Agent     │             │ :8001   │ │:8002   │ │:8003    │
+│ (本地 Qwen2.5-VL) │             └─────────┘ └────────┘ └─────────┘
+│ localhost:8000   │
+└────────┬─────────┘
+         │
+    ┌────┴────────────────┐
+    │  SQLite + ChromaDB  │
+    └─────────────────────┘
 ```
 
 ---

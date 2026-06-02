@@ -1,12 +1,17 @@
-"""ReAct Agent 编排器 — LLM 自主选择 Tool 执行建筑巡检。
+"""ReAct Agent 编排器 — Manager Agent + Memory Agent 协同。
 
 核心流程:
-    context → [LLM ⇄ Tool] 循环 → _save_turn → _extract_memory → 返回结果
+    context → [LLM ⇄ Tool] 循环 → _save_turn → Memory Agent 提取记忆 → 返回结果
+
+Manager Agent (self.llm): 通义千问 qwen3.6-flash — 推理 + 工具调度
+Memory Agent:            通义千问 qwen-turbo   — 自动提取长期记忆
+Report Agent:            本地 Qwen2.5-VL       — generate_report 工具调用
 
 依赖:
-    llm/client.py   → LLMClient (通义千问 API)
-    llm/tools.py    → build_tools, get_tool_schemas, execute_tool
-    db/chat_crud.py → Conversation + ChatMessage CRUD
+    llm/client.py       → LLMClient (OpenAI 兼容)
+    llm/memory_agent.py → get_memory_agent()
+    llm/tools.py        → build_tools, get_tool_schemas, execute_tool
+    db/chat_crud.py     → Conversation + ChatMessage CRUD
 """
 
 import json
@@ -280,10 +285,12 @@ class InspectionAgent:
             )
 
     def _extract_memory(self, db: Any, user_id: int, conversation_id: int) -> None:
-        """ReAct 落库后，用 MemoryManager 从最近对话提炼长期记忆。"""
+        """ReAct 落库后，用 Memory Agent (独立廉价模型) 提炼长期记忆。"""
         from db.chat_crud import get_recent_messages
+        from llm.memory_agent import get_memory_agent
 
         recent = get_recent_messages(db, conversation_id, limit=20)
+        memory_llm = get_memory_agent()
         self.memory_manager.extract_and_save_memory(
-            db, user_id, conversation_id, self.llm, recent
+            db, user_id, conversation_id, memory_llm, recent
         )

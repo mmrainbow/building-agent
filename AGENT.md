@@ -1,25 +1,29 @@
 # AGENT.md — Building-Agent 项目上下文
 
 ## 项目简介
-AI 驱动的建筑外立面巡检系统 — 多 Agent 协同架构。
+AI 驱动的建筑外立面巡检系统 — 三 Agent 协同架构。
 
-**Manager Agent** (通义千问 API) 负责理解用户意图、调度 CV 工具、解读结果。
-**Report Agent** (本地微调 Qwen2.5-VL) 负责生成专业中文巡检报告。
+| Agent | 模型 | 职责 |
+|------|------|------|
+| **Manager Agent** | 通义千问 qwen3.6-flash | 理解意图、调度 CV 工具、解读结果 |
+| **Memory Agent** | 通义千问 qwen-turbo | 自动从对话中提取长期记忆 |
+| **Report Agent** | 本地微调 Qwen2.5-VL | 生成专业中文巡检报告 |
 
-技术栈: Python 3.10+, FastAPI, Gradio 6, SQLAlchemy 2, transformers, YOLO (ultralytics), PyTorch, OpenCV, ChromaDB, 通义千问 API, Qwen2.5-VL (本地微调)
+技术栈: Python 3.10+, FastAPI, Gradio 6, SQLAlchemy 2, transformers, YOLO (ultralytics), PyTorch, OpenCV, ChromaDB
 
 ## 多 Agent 架构
 
 ```
-用户 ──→ Manager Agent (通义千问) ──→ CV 工具 (本地)
-                │                        ├─ classify_material
-                │                        ├─ estimate_floors
-                │                        ├─ detect_extension
-                │                        ├─ detect_defects
-                │                        └─ search_knowledge
+用户 ──→ Manager Agent (qwen3.6-flash) ──→ CV 工具 (本地)
+                │                              ├─ classify_material
+                │                              ├─ estimate_floors
+                │                              ├─ detect_extension
+                │                              ├─ detect_defects
+                │                              └─ search_knowledge
                 │
-                └──→ generate_report ──→ Report Agent (本地 Qwen2.5-VL)
-                                              └─ localhost:8000
+                ├──→ generate_report ──→ Report Agent (本地 Qwen2.5-VL :8000)
+                │
+                └──(每轮对话后自动)──→ Memory Agent (qwen-turbo) ──→ ConversationMemory
 ```
 
 ## 项目结构
@@ -30,6 +34,7 @@ llm/            LLM 客户端 + 6 个 Tool + Agent工厂 + Report Agent 服务
   client.py          OpenAI 兼容客户端
   tools.py           6 个 Tool (4 CV + search_knowledge + generate_report)
   agent_factory.py   Manager Agent 单例 (默认远程 API)
+  memory_agent.py    Memory Agent 工厂 (独立 qwen-turbo)
   chat_core.py       run_chat() 核心对话逻辑
   local_vl_model.py  Report Agent — Qwen2.5-VL 本地加载+推理
   react_parser.py    ReAct 文本 tool_call 解析器 (prompt 回退用)
@@ -71,20 +76,22 @@ db/        → 数据访问: SQLAlchemy ORM + CRUD
 
 ## 关键环境变量
 ```
-USE_LOCAL_LLM            使用本地 vLLM (默认 true)
-LLM_BASE_URL             LLM API 地址 (默认 http://localhost:8000/v1)
-LLM_MODEL                大模型名称 (默认 qwen2.5-vl-building)
-LLM_TOOL_CALL_MODE       工具调用模式: prompt (默认) 或 native
-LLM_API_KEY              远程 API 密钥 (USE_LOCAL_LLM=false 时必填)
-EMBEDDING_API_KEY        Embedding API 密钥 (默认复用 LLM_API_KEY)
-EMBEDDING_MODEL          Embedding 模型 (默认 text-embedding-v3)
-LOCAL_VL_MODEL_PATH      本地 merged 模型目录 (vLLM 启动时使用)
-LOCAL_VL_DEVICE_MAP      模型加载设备分配 (默认 auto)
-LOCAL_VL_TORCH_DTYPE     模型推理精度 (默认 float16)
-INSPECTION_DB_URL        数据库连接 (默认 sqlite:///./inspection.db)
-JWT_SECRET_KEY           JWT 签名密钥
-INIT_ADMIN_USERNAME      初始管理员用户名
-INIT_ADMIN_PASSWORD      初始管理员密码
+USE_LOCAL_LLM            使用本地 LLM 作为 Manager (默认 false，使用远程 API)
+LLM_BASE_URL             Manager LLM API 地址
+LLM_MODEL                 Manager 模型 (默认 qwen3.6-flash)
+LLM_TOOL_CALL_MODE        Manager 工具调用: native (默认)
+MEMORY_LLM_MODEL          Memory Agent 模型 (默认 qwen-turbo，独立于 Manager)
+LLM_API_KEY               DashScope API 密钥
+REPORT_AGENT_URL          Report Agent 地址 (默认 http://localhost:8000)
+EMBEDDING_API_KEY         Embedding API 密钥 (默认复用 LLM_API_KEY)
+EMBEDDING_MODEL           Embedding 模型 (默认 text-embedding-v3)
+LOCAL_VL_MODEL_PATH       本地模型路径 (Report Agent 使用)
+LOCAL_VL_DEVICE_MAP       模型加载设备 (默认 auto)
+LOCAL_VL_TORCH_DTYPE      推理精度 (默认 float16)
+INSPECTION_DB_URL         数据库连接 (默认 sqlite:///./inspection.db)
+JWT_SECRET_KEY            JWT 签名密钥
+INIT_ADMIN_USERNAME       初始管理员用户名
+INIT_ADMIN_PASSWORD       初始管理员密码
 ```
 
 ## 当前数据模型 (12 张表)
