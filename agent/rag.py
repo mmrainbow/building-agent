@@ -19,11 +19,7 @@ from langchain_core.embeddings import Embeddings
 
 load_dotenv()
 
-# Embedding API — 默认复用 DASHSCOPE_API_KEY，也可单独配置 EMBEDDING_API_KEY
-EMBEDDING_API_KEY = os.getenv(
-    "EMBEDDING_API_KEY",
-    os.getenv("DASHSCOPE_API_KEY", ""),
-)
+EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "")
 EMBEDDING_BASE_URL = os.getenv(
     "EMBEDDING_BASE_URL",
     os.getenv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),

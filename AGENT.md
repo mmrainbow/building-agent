@@ -49,11 +49,10 @@ db/        → 数据访问: SQLAlchemy ORM + CRUD
 
 ## 关键环境变量
 ```
-DASHSCOPE_API_KEY    通义千问 API 密钥
+EMBEDDING_API_KEY    通义千问 API 密钥（LLM + Embedding 共用）
 LLM_MODEL            大模型名称 (默认 qwen-plus)
-LLM_BASE_URL         API 地址 (默认 dashscope.aliyuncs.com/compatible-mode/v1)
-EMBEDDING_API_KEY    Embedding API 密钥 (默认复用 DASHSCOPE_API_KEY)
-EMBEDDING_MODEL      Embedding 模型 (默认 text-embedding-v4)
+LLM_BASE_URL         LLM API 地址 (默认 dashscope.aliyuncs.com/compatible-mode/v1)
+EMBEDDING_MODEL      Embedding 模型 (默认 text-embedding-v3)
 INSPECTION_DB_URL    数据库连接 (默认 sqlite:///./inspection.db)
 JWT_SECRET_KEY       JWT 签名密钥
 INIT_ADMIN_USERNAME  初始管理员用户名
