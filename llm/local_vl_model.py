@@ -210,6 +210,40 @@ class LocalVLModelClient:
             clean_up_tokenization_spaces=False,
         )[0].strip()
 
+    def _build_multi_image_prompt(
+        self,
+        image_count: int,
+        material: str,
+        floor: str,
+        has_extension: str,
+        defects: list[dict[str, Any]],
+    ) -> str:
+        """多图巡检 prompt — 告知模型共有 N 张图，每张图的缺陷已标注来源编号。"""
+        defect_lines = []
+        for d in defects:
+            img_idx = d.get("image_index", "?")
+            defect_lines.append(
+                f"- 图{img_idx}: {d.get('type', '未知')} (面积: {float(d.get('area', 0)):.0f}px²)"
+            )
+        defect_text = "\n".join(defect_lines) if defect_lines else "无明显隐患"
+
+        return (
+            f"你是住建外立面巡检报告助手。现有一栋建筑共 {image_count} 张不同角度照片，"
+            f"当前展示的是其中一张代表性正面图。请结合图像和以下所有图片的结构化检测结果生成中文巡检报告。\n\n"
+            f"结构化检测结果（共 {image_count} 张图片汇总）：\n"
+            f"- 材质：{material or 'Unknown'}\n"
+            f"- 楼层：{floor or 'Unknown'}\n"
+            f"- 加层：{has_extension or 'Unknown'}\n"
+            f"- 隐患明细（按图片编号）：\n{defect_text}\n\n"
+            f"重要约束：\n"
+            f"1. 隐患 area 是图像像素面积 px²，只能用于相对大小参考，禁止换算为平方米或平方厘米。\n"
+            f"2. 不要编造检测结果之外的事实。\n"
+            f"3. 输出 200 到 350 字中文。\n"
+            f"4. 内容包含：检测概况(图片数+建筑概况) → 逐图分析(引用'图1''图2'等编号) → 综合评定 → 处理建议。\n"
+            f"5. 每个隐患描述必须标注来源图片编号。\n"
+            f"6. 不要输出标题、Markdown 标记。"
+        )
+
     def generate_report(
         self,
         image_path: str,
