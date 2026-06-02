@@ -1,2 +1,2 @@
-from .orchestrator import InspectionAgent, SYSTEM_PROMPT
+from .orchestrator import ManagerAgent, SYSTEM_PROMPT
 from .memory_manager import MemoryManager

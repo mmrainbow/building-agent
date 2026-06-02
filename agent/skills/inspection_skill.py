@@ -16,6 +16,34 @@ import numpy as np
 MODEL_DIR = Path(__file__).parent.parent.parent / "model_weights"
 MIN_IMAGES = 3
 
+
+def draw_defects(image: np.ndarray, defects: list[dict]) -> np.ndarray:
+    """在图片上绘制缺陷框和编号标签。返回标注后的图片 (RGB)。"""
+    rendered = image.copy()
+    for d in defects:
+        box = d.get("box", [])
+        if len(box) != 4:
+            continue
+        pts = np.array(box, dtype=np.int32).reshape((-1, 1, 2))
+        cv2.polylines(rendered, [pts], isClosed=True, color=(255, 0, 0), thickness=3)
+        label = str(d.get("id", "?"))
+        x, y = pts[0][0]
+        cv2.putText(rendered, label, (x, y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+    return rendered
+
+
+def _save_annotated_images(record_id: int, annotated_b64_list: list[str]) -> list[str]:
+    """将标注图片 base64 列表保存为文件，返回文件路径列表。"""
+    paths = []
+    chat_dir = Path(__file__).parent.parent.parent / "chat_images"
+    chat_dir.mkdir(parents=True, exist_ok=True)
+    for i, b64 in enumerate(annotated_b64_list):
+        fpath = str(chat_dir / f"inspection_{record_id}_img{i + 1}_annotated.jpg")
+        with open(fpath, "wb") as f:
+            f.write(__import__("base64").b64decode(b64))
+        paths.append(fpath)
+    return paths
+
 INSPECT_SCHEMA = {
     "type": "function",
     "function": {
@@ -175,11 +203,15 @@ class InspectionSkill:
                     all_results.append(result)
 
         # 生成汇总报告（优先 Report Agent，回退远程 API）
-        report = self._generate_report(all_results, img_entries)
+        report, annotated_b64 = self._generate_report(all_results, img_entries)
         record.report = report
+        # 保存标注图片到 chat_images/ 目录供前端展示
+        _annotated_paths = _save_annotated_images(record.id, annotated_b64)
         record.status = "done"
         db.commit()
         db.refresh(record)
+        # 把标注图片路径附加到 record 上（不存 DB，仅运行时传递）
+        record._annotated_paths = _annotated_paths
 
     def _inspect_single(self, image) -> dict:
         return {
@@ -198,8 +230,9 @@ class InspectionSkill:
 
     # ── 报告生成 ──────────────────────────────────────────
 
-    def _generate_report(self, all_results: list[dict], img_entries: list) -> str:
-        """汇总所有图片的检测结果，优先调用 Report Agent (本地模型)，失败时回退远程 API。"""
+    def _generate_report(self, all_results: list[dict], img_entries: list) -> tuple[str, list[str]]:
+        """汇总检测结果，优先 Report Agent（本地模型），失败回退远程 API。
+        返回 (report_text, annotated_images_base64_list)。"""
         import base64
         import requests as req
 
@@ -208,24 +241,33 @@ class InspectionSkill:
         floors = [r["floor"] for r in all_results]
         extensions = [r["has_extension"] for r in all_results]
         all_defects = []
+        annotated_b64_list = []
+
         for i, r in enumerate(all_results):
             for d in (r.get("defects") or []):
                 d["image_index"] = i + 1
                 all_defects.append(d)
+            # 生成标注图片：在原始图上画缺陷框
+            annotated = draw_defects(
+                cv2.cvtColor(
+                    cv2.imdecode(
+                        np.frombuffer(img_entries[i].chat_image.data, np.uint8),
+                        cv2.IMREAD_COLOR,
+                    ),
+                    cv2.COLOR_BGR2RGB,
+                ),
+                r.get("defects") or [],
+            )
+            _, buf = cv2.imencode(".jpg", cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR))
+            annotated_b64_list.append(base64.b64encode(buf.tobytes()).decode("utf-8"))
 
-        # 编码所有图片为 base64
-        images_b64 = []
-        for entry in img_entries:
-            if entry.chat_image and entry.chat_image.data:
-                images_b64.append(base64.b64encode(entry.chat_image.data).decode("utf-8"))
-
-        # ── 优先: Report Agent (本地模型) ──
+        # ── 优先: Report Agent (本地模型) — 发送标注图片让模型看到缺陷框 ──
         report_url = os.getenv("REPORT_AGENT_URL", "http://localhost:8000")
         try:
             resp = req.post(
                 f"{report_url}/v1/report",
                 json={
-                    "images_base64": images_b64,
+                    "images_base64": annotated_b64_list,
                     "material": ", ".join(set(m for m in materials if m and m != "Unknown")) or "Unknown",
                     "floor": ", ".join(set(f for f in floors if f and f != "Unknown")) or "Unknown",
                     "has_extension": ", ".join(set(e for e in extensions if e and e != "Unknown")) or "Unknown",
@@ -236,7 +278,7 @@ class InspectionSkill:
             if resp.status_code == 200:
                 data = resp.json()
                 print(f"[InspectionSkill] Report Agent 生成成功 ({data.get('elapsed_seconds', 0):.1f}s)")
-                return data["report"]
+                return data["report"], annotated_b64_list
         except Exception as e:
             print(f"[InspectionSkill] Report Agent 不可用: {e}")
 
@@ -261,10 +303,10 @@ class InspectionSkill:
             )
             if resp.status_code == 200:
                 print("[InspectionSkill] 回退远程 API 生成成功")
-                return resp.json()["choices"][0]["message"]["content"].strip()
-            return f"[LLM HTTP {resp.status_code}]"
+                return resp.json()["choices"][0]["message"]["content"].strip(), annotated_b64_list
+            return f"[LLM HTTP {resp.status_code}]", annotated_b64_list
         except Exception as e:
-            return f"[LLM Error: {e}]"
+            return f"[LLM Error: {e}]", annotated_b64_list
 
     def _build_prompt(self, materials, floors, extensions, defects) -> str:
         defect_lines = []

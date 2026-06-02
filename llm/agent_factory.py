@@ -16,11 +16,11 @@
 
 import os
 
-from agent.orchestrator import InspectionAgent
+from agent.orchestrator import ManagerAgent
 from llm.client import LLMClient
 from llm.tools import build_tools
 
-_agent: InspectionAgent | None = None
+_agent: ManagerAgent | None = None
 
 
 def _is_local_llm_enabled() -> bool:
@@ -51,10 +51,10 @@ def reset_agent() -> None:
     _agent = None
 
 
-def get_chat_agent() -> InspectionAgent:
-    """获取共享的 InspectionAgent 单例。"""
+def get_chat_agent() -> ManagerAgent:
+    """获取共享的 ManagerAgent 单例。"""
     global _agent
     if _agent is None:
-        _agent = InspectionAgent(_create_llm_client())
+        _agent = ManagerAgent(_create_llm_client())
         _agent.tools = build_tools()
     return _agent

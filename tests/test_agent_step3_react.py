@@ -1,4 +1,4 @@
-"""ReAct Agent 第四阶段 — InspectionAgent.run 端到端测试（独立脚本）。
+"""ReAct Agent 第四阶段 — ManagerAgent.run 端到端测试（独立脚本）。
 
 用法（项目根目录）:
     python scripts/test_agent_step3_react.py
@@ -30,7 +30,7 @@ from db.crud import create_user  # noqa: E402
 from db.chat_crud import create_conversation  # noqa: E402
 from llm.client import LLMClient  # noqa: E402
 from llm.tools import build_tools  # noqa: E402
-from agent.orchestrator import InspectionAgent  # noqa: E402
+from agent.orchestrator import ManagerAgent  # noqa: E402
 
 USER_MESSAGE = "这栋楼有什么隐患吗？材质是什么？帮我出个报告"
 FAKE_IMAGE_SHAPE = (640, 640, 3)
@@ -87,7 +87,7 @@ def setup_memory_db():
 
 
 def main() -> None:
-    _banner("ReAct Step3: InspectionAgent 端到端测试")
+    _banner("ReAct Step3: ManagerAgent 端到端测试")
 
     if not os.getenv("DASHSCOPE_API_KEY"):
         print("\n错误: 未设置 DASHSCOPE_API_KEY，请在 .env 中配置后重试。")
@@ -99,7 +99,7 @@ def main() -> None:
 
     print("\n>>> 初始化 Agent + Tools ...")
     llm = LLMClient()
-    agent = InspectionAgent(llm, max_rounds=10)
+    agent = ManagerAgent(llm, max_rounds=10)
     agent.tools = build_tools()
     print(f"    模型: {llm.model}")
     print(f"    工具: {list(agent.tools.keys())}")

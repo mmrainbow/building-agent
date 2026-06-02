@@ -93,6 +93,11 @@ with gr.Blocks(title=TEXT["title"]) as demo:
 
                 images_state = gr.State(value=[])
 
+                with gr.Row():
+                    annotated_gallery = gr.Gallery(
+                        label="缺陷标注", columns=3, height=300, visible=False
+                    )
+
                 def _add_image(img, imgs):
                     if img is None:
                         return imgs, imgs, f"📸 已收集 {len(imgs)} 张 | 至少需要 3 张"
@@ -105,9 +110,9 @@ with gr.Blocks(title=TEXT["title"]) as demo:
 
                 def _run_inspection(imgs, sess):
                     if not sess:
-                        return "请先登录。", []
+                        return "请先登录。", [], gr.update(visible=False)
                     if len(imgs) < 3:
-                        return f"至少需要 3 张图片，当前只有 {len(imgs)} 张。", imgs
+                        return f"至少需要 3 张图片，当前只有 {len(imgs)} 张。", imgs, gr.update(visible=False)
                     from agent.skills.inspection_skill import InspectionSkill
                     skill = InspectionSkill()
                     skill._ensure_predictors()
@@ -121,14 +126,15 @@ with gr.Blocks(title=TEXT["title"]) as demo:
                             skill._add_image(db, record, img)
                         skill._run_inspection_on_all(db, record)
                         report = record.report or "报告生成失败。"
-                        return report, []
+                        anno_paths = getattr(record, "_annotated_paths", [])
+                        return report, [], gr.update(value=anno_paths, visible=True) if anno_paths else gr.update(visible=False)
                     finally:
                         db.close()
 
                 inspect_btn.click(
                     _run_inspection,
                     [images_state, session_state],
-                    [report_output, images_state],
+                    [report_output, images_state, annotated_gallery],
                 )
 
             with gr.TabItem("历史记录"):

@@ -122,24 +122,24 @@ def build_app():
 
     @app.post("/v1/report", response_model=ReportResponse)
     def generate_report(req: ReportRequest):
-        """Report Agent — 接收图片+结构化数据，返回专业巡检报告。支持单张/多张图片。"""
+        """Report Agent — 接收图片+结构化数据，所有图片一起传给 VL 模型。"""
         started_at = time.time()
 
-        # 确定图片列表：优先 images_base64，回退 image_base64
         images = req.images_base64 if req.images_base64 else ([req.image_base64] if req.image_base64 else [])
         if not images:
             return ReportResponse(report="错误: 未提供图片", elapsed_seconds=0)
 
-        # 多图时使用第一张作为 VL 模型的视觉输入（代表性正面图）
-        image_bytes = base64.b64decode(images[0])
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-            tmp.write(image_bytes)
-            tmp_path = tmp.name
-
+        # 解码所有图片 → 临时文件
+        tmp_paths = []
         try:
+            for b64 in images:
+                image_bytes = base64.b64decode(b64)
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+                tmp.write(image_bytes)
+                tmp_paths.append(tmp.name)
+
             client = get_local_vl_client()
 
-            # 多图时：构造增强 prompt，包含所有图片的编号信息
             if len(images) > 1:
                 prompt = client._build_multi_image_prompt(
                     image_count=len(images),
@@ -148,10 +148,10 @@ def build_app():
                     has_extension=req.has_extension,
                     defects=req.defects,
                 )
-                report = client.generate(image_path=tmp_path, prompt=prompt)
+                report = client.generate_multi(image_paths=tmp_paths, prompt=prompt)
             else:
                 report = client.generate_report(
-                    image_path=tmp_path,
+                    image_path=tmp_paths[0],
                     material=req.material,
                     floor=req.floor,
                     has_extension=req.has_extension,
@@ -160,8 +160,9 @@ def build_app():
             elapsed = time.time() - started_at
             return ReportResponse(report=report, elapsed_seconds=round(elapsed, 2))
         finally:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+            for p in tmp_paths:
+                if os.path.exists(p):
+                    os.unlink(p)
 
     return app
 

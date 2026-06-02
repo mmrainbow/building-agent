@@ -31,7 +31,7 @@ def _fake_run(user_id, conversation_id, message, db, image=None, **kwargs):
 
 
 class _MockAgent:
-    """模拟 InspectionAgent — 持久化消息到真实 DB。"""
+    """模拟 ManagerAgent — 持久化消息到真实 DB。"""
     tools = {}
 
     def run(self, **kwargs):

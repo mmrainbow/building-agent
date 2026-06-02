@@ -97,15 +97,15 @@ def _history_to_messages(records: list) -> list[dict]:
 # ── Agent ─────────────────────────────────────────────────
 
 
-class InspectionAgent:
-    """建筑巡检 ReAct Agent。
+class ManagerAgent:
+    """Manager Agent — ReAct 推理 + 工具调度。
 
     用法:
         from llm.client import LLMClient
         from llm.tools import build_tools
 
         llm = LLMClient(api_key="sk-xxx")
-        agent = InspectionAgent(llm)
+        agent = ManagerAgent(llm)
         agent.tools = build_tools()
 
         result = agent.run(

@@ -1,4 +1,4 @@
-"""MemoryManager + InspectionAgent 三轮对话集成测试。
+"""MemoryManager + ManagerAgent 三轮对话集成测试。
 
 用法（项目根目录，已激活 .venv）:
     $env:PYTHONPATH = (Get-Location).Path
@@ -24,7 +24,7 @@ from db.crud import create_user  # noqa: E402
 from db.chat_crud import create_conversation  # noqa: E402
 from llm.client import LLMClient  # noqa: E402
 from llm.tools import build_tools  # noqa: E402
-from agent.orchestrator import InspectionAgent  # noqa: E402
+from agent.orchestrator import ManagerAgent  # noqa: E402
 from agent.memory_manager import MemoryManager  # noqa: E402
 
 DB_URL = "sqlite:///./memory_test.db"
@@ -70,7 +70,7 @@ def main():
     user_id, conv_id = setup_test_data(db)
 
     llm_client = LLMClient()
-    agent = InspectionAgent(llm_client)  # 第一个位置参数是 llm_client，不是 client=
+    agent = ManagerAgent(llm_client)  # 第一个位置参数是 llm_client，不是 client=
     agent.tools = build_tools()
     memory_manager = MemoryManager()
 

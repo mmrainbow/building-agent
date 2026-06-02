@@ -122,17 +122,29 @@ class LocalVLModelClient:
         max_new_tokens: int | None = None,
         temperature: float = 0.0,
     ) -> str:
+        """单图生成 — 兼容旧接口。"""
+        return self.generate_multi(
+            image_paths=[image_path],
+            prompt=prompt,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+        )
+
+    def generate_multi(
+        self,
+        image_paths: list[str],
+        prompt: str,
+        max_new_tokens: int | None = None,
+        temperature: float = 0.0,
+    ) -> str:
+        """多图生成 — 所有图片一起传给 VL 模型。"""
         self.load()
-        image = Image.open(image_path).convert("RGB")
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image", "image": image},
-                    {"type": "text", "text": prompt},
-                ],
-            }
-        ]
+        images = [Image.open(p).convert("RGB") for p in image_paths]
+        content = []
+        for img in images:
+            content.append({"type": "image", "image": img})
+        content.append({"type": "text", "text": prompt})
+        messages = [{"role": "user", "content": content}]
         text = self.processor.apply_chat_template(
             messages,
             tokenize=False,
@@ -140,7 +152,7 @@ class LocalVLModelClient:
         )
         inputs = self.processor(
             text=[text],
-            images=[image],
+            images=images,
             padding=True,
             return_tensors="pt",
         )

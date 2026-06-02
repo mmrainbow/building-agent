@@ -27,7 +27,7 @@ from db.crud import create_user  # noqa: E402
 from db.chat_crud import create_conversation, get_recent_messages  # noqa: E402
 from llm.client import LLMClient  # noqa: E402
 from llm.tools import build_tools  # noqa: E402
-from agent.orchestrator import InspectionAgent  # noqa: E402
+from agent.orchestrator import ManagerAgent  # noqa: E402
 
 ROUND1_MESSAGE = (
     "我上传了这栋楼的照片，帮我看一下材质和大概层数。"
@@ -137,7 +137,7 @@ def main() -> None:
         print(f"    - [{m.memory_type}] {m.content[:50]}...")
 
     llm = LLMClient()
-    agent = InspectionAgent(llm, max_rounds=10)
+    agent = ManagerAgent(llm, max_rounds=10)
     agent.tools = build_tools()
     fake_image = np.zeros((640, 640, 3), dtype=np.uint8)
 
