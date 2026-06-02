@@ -54,3 +54,7 @@ Agent SHALL maintain short-term and long-term memory for each conversation.
 
 ### Requirement: Single Agent Instance
 Both Gradio and FastAPI paths SHALL share one `InspectionAgent` singleton via `llm/agent_factory.py`.
+
+## Dependencies
+- **Depends on**: `llm/client.py` (LLM API calls), `llm/tools.py` (5 Tool definitions → predictors), `agent/memory_manager.py` (context assembly), `agent/rag.py` (regulation search), `db/` (persistence)
+- **Depended on by**: `api/chat.py` (chat endpoint), `services/chat_service.py` (Gradio chat callbacks), `app` (智能问答 Tab)

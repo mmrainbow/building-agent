@@ -36,5 +36,23 @@ API layer SHALL only handle HTTP concerns (param parsing, auth, response formatt
 ### Requirement: Chat Endpoints
 API SHALL expose `/chat/send` (POST, text+optional image), `/chat/conversations` (GET list), `/chat/conversations/{id}` (GET detail), `/chat/conversations/{id}` (DELETE).
 
+## Dependencies
+- **Depends on**: `api/auth.py` (JWT), `api/schemas.py` (Pydantic models), `db/` (data access), `llm/` (chat/inspection delegation), `agent/` (inspection execution)
+- **Depended on by**: `app` (Gradio UI consumes REST API), external API clients
+
+---
+
 ### Requirement: Health Check
-API SHALL expose `/health` (GET, public) returning database connectivity, Ollama reachability, and model file presence.
+API SHALL expose `/health` (GET, public) returning database connectivity, Ollama API reachability, and model weight file presence (5 files: `add_predict.pth`, `best.pt`, `main_building.pt`, `material.pth`, `outer_obj.pt`).
+
+#### Scenario: All components healthy
+- **WHEN** `/health` is called and DB, Ollama, and all 5 model files are available
+- **THEN** response SHALL return `{"status": "ok", "database": "ok", "ollama": "ok", "models": {...}}`
+
+#### Scenario: One component degraded
+- **WHEN** Ollama API is unreachable or a model file is missing
+- **THEN** response SHALL return `"status": "degraded"` with specific component status
+
+#### Scenario: Model weight check
+- **WHEN** `/health` is called
+- **THEN** SHALL check file existence for 5 required models in `model_weights/` directory (does NOT load weights into memory)

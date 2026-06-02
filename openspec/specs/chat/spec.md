@@ -43,3 +43,7 @@ System SHALL append tool call names to assistant responses (e.g., "> 🔧 已调
 
 ### Requirement: History Preserves Tool Role
 When loading conversation history, tool message roles SHALL be preserved (not disguised as "user") to prevent LLM from re-calling already-executed tools.
+
+## Dependencies
+- **Depends on**: `agent/orchestrator.py` (ReAct Agent), `agent/memory_manager.py` (context), `llm/chat_core.py` (run_chat), `db/chat_crud.py` (message persistence), `db/models.py` (ChatMessage/ChatImage/Conversation)
+- **Depended on by**: `api/chat.py` (chat API endpoints), `app` (智能问答 Tab)

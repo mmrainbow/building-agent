@@ -43,3 +43,7 @@ Embedding SHALL use DashScope native API (not compatible mode) with `text-embedd
 
 ### Requirement: Separate Storage
 ChromaDB vector data SHALL live in `chroma_db/` (gitignored), separate from the main SQLAlchemy `inspection.db`. Knowledge metadata SHALL be stored in `knowledge_documents` and `knowledge_chunks` SQL tables.
+
+## Dependencies
+- **Depends on**: `langchain-text-splitters` (chunking), `chromadb` (vector store), `langchain-community` (Chroma wrapper), DashScope Embedding API (text-embedding-v3), `db/models.py` (KnowledgeDocument/KnowledgeChunk)
+- **Depended on by**: `agent/rag.py` (search_regulations), `llm/tools.py` (search_knowledge Tool), `scripts/build_rag.py` (index builder)

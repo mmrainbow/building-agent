@@ -1,9 +1,55 @@
 schema: spec-driven
 
 context: |
-  Tech stack: Python 3.10, FastAPI, Gradio 6, SQLAlchemy 2, SQLite, PyTorch, YOLO (ultralytics), OpenCV, LangGraph, ChromaDB
-  Model weights: model_weights/ directory (gitignored)
-  LLM: 通义千问 API (qwen-plus/qwen3.6-flash), Embedding: text-embedding-v3
-  Auth: JWT (python-jose) + bcrypt
-  Domain: 建筑外立面巡检 — AI 检测材质/楼层/加层/隐患，生成中文报告
-  Conventions: Chinese UI/comments, type hints, pytest 35+ tests
+  Tech stack: Python 3.10+, FastAPI, Gradio 6, SQLAlchemy 2, SQLite (可切换 MySQL), PyTorch, YOLO (ultralytics), OpenCV, LangGraph, ChromaDB
+  LLM: 通义千问 API (qwen-plus/qwen3.6-flash, OpenAI 兼容格式 via DashScope)
+  Embedding: text-embedding-v3 (DashScope 原生 API, batch_size=10)
+  本地 VL: Qwen2.5-VL 3B 微调模型 (可选, LOCAL_VL_MODEL_ENABLED=true 启用, transformers + AutoProcessor)
+  Auth: JWT HS256 (python-jose) + bcrypt, 30min access / 7d refresh
+  Models: YOLO (主楼检测+OBB隐患), EfficientNetV2 (材质分类+加层判断), RANSAC (楼层聚类)
+  Domain: 建筑外立面巡检 — AI 检测材质(12类)/楼层/加层/隐患(空鼓/渗水/脱落/裂缝), 生成中文报告
+  Conventions: Chinese UI/comments, type hints (PEP 604 | 语法), pytest 35+ tests
+  默认 DB: SQLite (inspection.db), 可通过 INSPECTION_DB_URL 切换 MySQL
+
+env_vars_catalog:
+  llm:
+    LLM_API_KEY: "通义千问 Chat API 密钥 (必选)"
+    LLM_MODEL: "大模型名称 (默认 qwen-plus，可选 qwen3.6-flash)"
+    LLM_BASE_URL: "LLM API 地址 (默认 DashScope compatible-mode: https://dashscope.aliyuncs.com/compatible-mode/v1)"
+  embedding:
+    EMBEDDING_API_KEY: "Embedding API 密钥 (默认复用 LLM_API_KEY)"
+    EMBEDDING_MODEL: "Embedding 模型 (默认 text-embedding-v3)"
+    EMBEDDING_BASE_URL: "Embedding API 地址 (默认复用 LLM_BASE_URL)"
+  local_vl:
+    LOCAL_VL_MODEL_ENABLED: "是否启用本地微调 VL 模型 (true/false, 默认 false)"
+    LOCAL_VL_MODEL_PATH: "本地 merged 模型目录路径 (默认 ./outputs/qwen2_5_vl_3b_building_merged)"
+    LOCAL_VL_DEVICE_MAP: "模型加载设备分配策略 (默认 auto)"
+    LOCAL_VL_TORCH_DTYPE: "模型推理精度 (默认 float16)"
+    LOCAL_VL_MAX_NEW_TOKENS: "最大生成文本长度 (默认 512)"
+    LOCAL_VL_MAX_PIXELS: "图像最大像素数 (默认 131072)"
+  database:
+    INSPECTION_DB_URL: "数据库连接字符串 (默认 sqlite:///./inspection.db)"
+    JWT_SECRET_KEY: "JWT 签名密钥 (生产环境必设)"
+  legacy:
+    OLLAMA_BASE_URL: "旧 Ollama 地址 (默认 http://localhost:11434, 仅健康检查使用)"
+    OLLAMA_MODEL: "旧 Ollama 模型名 (默认 qwen2:1.5b, 未在当前代码中使用)"
+  admin:
+    INIT_ADMIN_USERNAME: "初始管理员用户名 (默认 admin)"
+    INIT_ADMIN_PASSWORD: "初始管理员密码 (仅首次启动时生效)"
+
+boundary_rules:
+  api_scope: "薄路由层 — 参数解析 + JWT 认证 + 委托给 llm/ 或 services/ → 格式化 HTTP 响应。不写业务逻辑。"
+  services_scope: "Gradio 适配层 — session 状态管理 + 上下文拼接 + UI 回调。返回纯数据 (str/dict/DataFrame/Figure)，不依赖 FastAPI 或 Gradio 组件。"
+  llm_scope: "核心逻辑 — LLM 客户端 + Tool 定义 + Agent 工厂 + 对话核心 + 本地 VL 模型调用。openai>=1.0 兼容格式。"
+  agent_scope: "Agent 编排 — ReAct 循环 (max 10 rounds, tool timeout 30s) + 双层记忆 (20 条短期 + top_k=5 长期) + RAG 检索 (top_k=3)。"
+  db_scope: "数据访问 — SQLAlchemy ORM 模型 + CRUD 操作。不包含业务逻辑。"
+  predictors_scope: "CV 推理 — BasePredictor 统一接口，4 个具体预测器。模型权重文件存放于 model_weights/。"
+  import_chain_rule: "新模块避免经过 services/__init__.py import 链 — 会触发 agent.graph → YOLO/torch 惰性加载导致启动延迟。"
+
+inspection_paths:
+  gradio_inspection_tab: "图像巡检 Tab → InspectionSkill (多图收集 ≥3 → 批量CV → LLM报告 → 入库)"
+  gradio_chat_tab: "智能问答 Tab → ReAct Agent (LLM 自主选择 5 Tool → 最终回答 → 记忆提取)"
+  api_predict: "POST /predict → LangGraph DAG (全跑 4 预测器 → 优先本地VL → 回退 LLM+RAG)"
+  cli: "python main.py → LangGraph DAG (同上)"
+
+test_coverage: "35+ tests (pytest + httpx): auth(16), agent step1-4(30+), chat(2), health(3), history(5), memory(1), models(8), predict(3)"
