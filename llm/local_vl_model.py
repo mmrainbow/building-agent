@@ -1,0 +1,191 @@
+import os
+from pathlib import Path
+from typing import Any
+
+import torch
+from PIL import Image
+
+
+LOCAL_VL_MODEL_ENABLED = os.getenv("LOCAL_VL_MODEL_ENABLED", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+LOCAL_VL_MODEL_PATH = os.getenv(
+    "LOCAL_VL_MODEL_PATH",
+    str(Path(__file__).parent.parent / "outputs" / "qwen2_5_vl_3b_building_merged"),
+)
+LOCAL_VL_DEVICE_MAP = os.getenv("LOCAL_VL_DEVICE_MAP", "auto")
+LOCAL_VL_TORCH_DTYPE = os.getenv("LOCAL_VL_TORCH_DTYPE", "float16")
+LOCAL_VL_MAX_NEW_TOKENS = int(os.getenv("LOCAL_VL_MAX_NEW_TOKENS", "512"))
+LOCAL_VL_MAX_PIXELS = int(os.getenv("LOCAL_VL_MAX_PIXELS", "131072"))
+
+_CLIENT: "LocalVLModelClient | None" = None
+
+
+def is_local_vl_enabled() -> bool:
+    return LOCAL_VL_MODEL_ENABLED
+
+
+def get_local_vl_client() -> "LocalVLModelClient":
+    global _CLIENT
+    if _CLIENT is None:
+        _CLIENT = LocalVLModelClient()
+    return _CLIENT
+
+
+def _resolve_dtype(dtype_name: str):
+    if dtype_name == "auto":
+        return "auto"
+    dtype = getattr(torch, dtype_name, None)
+    if dtype is None:
+        raise ValueError(f"不支持的 torch dtype: {dtype_name}")
+    return dtype
+
+
+def _format_defects(defects: list[dict[str, Any]]) -> str:
+    if not defects:
+        return "无明显隐患"
+    lines = []
+    for defect in defects:
+        defect_id = defect.get("id", "?")
+        defect_type = defect.get("type", "未知隐患")
+        area = defect.get("area", 0)
+        lines.append(f"- 序号{defect_id}：{defect_type}，像素面积约 {float(area):.1f}px")
+    return "\n".join(lines)
+
+
+def build_inspection_prompt(
+    material: str,
+    floor: str,
+    has_extension: str,
+    defects: list[dict[str, Any]],
+) -> str:
+    return f"""你是住建外立面巡检报告助手，请结合图像和结构化检测结果生成中文巡检报告。
+
+结构化检测结果：
+- 材质：{material or "Unknown"}
+- 楼层：{floor or "Unknown"}
+- 加层：{has_extension or "Unknown"}
+- 隐患：
+{_format_defects(defects)}
+
+重要约束：
+1. 隐患 area 是图像像素面积 px，只能用于相对大小参考，禁止换算为平方米或平方厘米。
+2. 不要编造检测结果之外的事实。
+3. 输出 120 到 220 字中文。
+4. 内容包含巡检结论、主要风险、处置建议。
+5. 不要输出标题、编号、Markdown，也不要使用分段标签。"""
+
+
+class LocalVLModelClient:
+    def __init__(
+        self,
+        model_path: str | None = None,
+        device_map: str | None = None,
+        torch_dtype: str | None = None,
+        max_pixels: int | None = None,
+    ):
+        self.model_path = str(Path(model_path or LOCAL_VL_MODEL_PATH))
+        self.device_map = device_map or LOCAL_VL_DEVICE_MAP
+        self.torch_dtype = _resolve_dtype(torch_dtype or LOCAL_VL_TORCH_DTYPE)
+        self.max_pixels = max_pixels or LOCAL_VL_MAX_PIXELS
+        self.model = None
+        self.processor = None
+
+    def load(self) -> None:
+        if self.model is not None and self.processor is not None:
+            return
+        if not Path(self.model_path).exists():
+            raise FileNotFoundError(f"本地多模态模型目录不存在: {self.model_path}")
+
+        from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
+
+        self.processor = AutoProcessor.from_pretrained(
+            self.model_path,
+            max_pixels=self.max_pixels,
+            trust_remote_code=True,
+        )
+        self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            self.model_path,
+            torch_dtype=self.torch_dtype,
+            device_map=self.device_map,
+            trust_remote_code=True,
+        )
+        self.model.eval()
+
+    def generate(
+        self,
+        image_path: str,
+        prompt: str,
+        max_new_tokens: int | None = None,
+        temperature: float = 0.0,
+    ) -> str:
+        self.load()
+        image = Image.open(image_path).convert("RGB")
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": image},
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ]
+        text = self.processor.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        inputs = self.processor(
+            text=[text],
+            images=[image],
+            padding=True,
+            return_tensors="pt",
+        )
+        inputs = inputs.to(self.model.device)
+        do_sample = temperature > 0
+        generate_kwargs = {
+            "max_new_tokens": max_new_tokens or LOCAL_VL_MAX_NEW_TOKENS,
+            "do_sample": do_sample,
+        }
+        if do_sample:
+            generate_kwargs["temperature"] = temperature
+        generated_ids = self.model.generate(**inputs, **generate_kwargs)
+        generated_ids = [
+            output_ids[len(input_ids) :]
+            for input_ids, output_ids in zip(inputs.input_ids, generated_ids)
+        ]
+        return self.processor.batch_decode(
+            generated_ids,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        )[0].strip()
+
+    def generate_report(
+        self,
+        image_path: str,
+        material: str,
+        floor: str,
+        has_extension: str,
+        defects: list[dict[str, Any]],
+    ) -> str:
+        prompt = build_inspection_prompt(material, floor, has_extension, defects)
+        return self.generate(image_path=image_path, prompt=prompt)
+
+
+def generate_local_inspection_report(
+    image_path: str,
+    material: str,
+    floor: str,
+    has_extension: str,
+    defects: list[dict[str, Any]],
+) -> str:
+    return get_local_vl_client().generate_report(
+        image_path=image_path,
+        material=material,
+        floor=floor,
+        has_extension=has_extension,
+        defects=defects,
+    )

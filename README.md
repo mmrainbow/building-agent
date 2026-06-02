@@ -54,6 +54,12 @@ Environment variables:
 - `INSPECTION_DB_URL` (default: `sqlite:///./inspection.db`)
 - `OLLAMA_BASE_URL` (default: `http://localhost:11434`)
 - `OLLAMA_MODEL` (default: `qwen2:1.5b`)
+- `LOCAL_VL_MODEL_ENABLED` (default: `false`, set `true` to use the fine-tuned local VL model)
+- `LOCAL_VL_MODEL_PATH` (default: `./outputs/qwen2_5_vl_3b_building_merged`)
+- `LOCAL_VL_DEVICE_MAP` (default: `auto`)
+- `LOCAL_VL_TORCH_DTYPE` (default: `float16`)
+- `LOCAL_VL_MAX_NEW_TOKENS` (default: `512`)
+- `LOCAL_VL_MAX_PIXELS` (default: `131072`)
 - `INIT_ADMIN_USERNAME` (default: `admin`)
 - `INIT_ADMIN_PASSWORD` (required only for first-time admin bootstrap)
 
@@ -63,11 +69,30 @@ Examples:
 # PowerShell
 $env:INSPECTION_DB_URL="mysql+pymysql://user:pass@localhost:3306/building_inspection"
 $env:INIT_ADMIN_PASSWORD="StrongPassword123!"
+$env:LOCAL_VL_MODEL_ENABLED="true"
+$env:LOCAL_VL_MODEL_PATH="./outputs/qwen2_5_vl_3b_building_merged"
 
 # Linux / macOS
 export INSPECTION_DB_URL="mysql+pymysql://user:pass@localhost:3306/building_inspection"
 export INIT_ADMIN_PASSWORD="StrongPassword123!"
+export LOCAL_VL_MODEL_ENABLED="true"
+export LOCAL_VL_MODEL_PATH="./outputs/qwen2_5_vl_3b_building_merged"
 ```
+
+## Fine-tuned Local VL Model
+
+The project can use the merged Qwen2.5-VL fine-tuned model for report generation.
+When `LOCAL_VL_MODEL_ENABLED=true`, `agent/nodes.py` calls `llm/local_vl_model.py`
+first. If local inference fails, the system falls back to Ollama.
+
+To share the model with another developer, provide the full merged model directory:
+
+```text
+outputs/qwen2_5_vl_3b_building_merged
+```
+
+Do not provide only one `.safetensors` file. The directory also contains tokenizer,
+processor, config, and generation settings required for local loading.
 
 ## Run
 

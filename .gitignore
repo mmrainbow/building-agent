@@ -9,3 +9,5 @@ __pycache__/
 models/*.pt
 models/*.pth
 inspection.db
+outputs/
+ollama-test/

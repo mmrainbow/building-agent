@@ -17,6 +17,10 @@ pymysql>=1.1.0
 bcrypt>=4.0.0
 python-jose[cryptography]>=3.3.0
 plotly>=5.18.0
+transformers>=4.49.0
+accelerate>=0.26.0
+safetensors>=0.4.0
+Pillow>=10.0.0
 
 # 测试
 pytest>=8.0.0

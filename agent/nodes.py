@@ -4,6 +4,7 @@ from pathlib import Path
 import cv2
 import requests
 
+from llm.local_vl_model import generate_local_inspection_report, is_local_vl_enabled
 from predictors.added_floor import AddedFloorPredictor
 from predictors.floor import FloorPredictor
 from predictors.hidden_danger import HiddenDangerPredictor
@@ -70,6 +71,21 @@ def defect_node(state: InspectionState):
 
 def report_node(state: InspectionState):
     defects = state.get("defects", []) or []
+    local_vl_error = None
+    if is_local_vl_enabled():
+        try:
+            report = generate_local_inspection_report(
+                image_path=state["image_path"],
+                material=state.get("material", "Unknown"),
+                floor=state.get("floor", "Unknown"),
+                has_extension=state.get("has_extension", "Unknown"),
+                defects=defects,
+            )
+            if report:
+                return {"report": report}
+        except Exception as e:
+            local_vl_error = e
+
     if defects:
         defects_desc = "\n".join(
             [f"- Box {d.get('id', '?')}: {d.get('type', 'unknown')} ({d.get('area', 0):.1f}px)" for d in defects]
@@ -110,6 +126,7 @@ Requirements:
                 return {"report": report}
         fallback = (
             f"LLM call failed (HTTP {response.status_code}).\n"
+            f"Local VL error: {local_vl_error}\n"
             f"Material: {state.get('material')}\n"
             f"Floor: {state.get('floor')}\n"
             f"Extension: {state.get('has_extension')}\n"
@@ -119,6 +136,7 @@ Requirements:
     except Exception as e:
         fallback = (
             f"LLM call failed: {e}\n"
+            f"Local VL error: {local_vl_error}\n"
             f"Material: {state.get('material')}\n"
             f"Floor: {state.get('floor')}\n"
             f"Extension: {state.get('has_extension')}\n"
