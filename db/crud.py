@@ -76,7 +76,7 @@ def save_inspection(
 
     for defect_input in defects or []:
         defect = Defect(
-            image_id=img.id,
+            chat_image_id=chat_image_id,
             defect_type=str(defect_input.get("type", "")),
             area=float(defect_input.get("area", 0) or 0),
             box_coords=defect_input.get("box", []),

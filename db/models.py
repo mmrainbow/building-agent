@@ -107,24 +107,21 @@ class ImageInspection(Base):
 
     record = relationship("InspectionRecord", back_populates="images")
     chat_image = relationship("ChatImage", backref="inspection_images")
-    defects = relationship(
-        "Defect", back_populates="image", cascade="all, delete-orphan"
-    )
 
 
 class Defect(Base):
-    """图片级的隐患 — 每条缺陷属于某张巡检图片。"""
+    """图片级的隐患 — 每条缺陷直连 chat_images，无论巡检还是对话。"""
     __tablename__ = "defects"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    image_id = Column(
-        Integer, ForeignKey("image_inspection.id", ondelete="CASCADE"), nullable=False
+    chat_image_id = Column(
+        Integer, ForeignKey("chat_images.id", ondelete="CASCADE"), nullable=True
     )
     defect_type = Column(String(50))
     area = Column(Float)
     box_coords = Column(JSON)
 
-    image = relationship("ImageInspection", back_populates="defects")
+    chat_image = relationship("ChatImage", backref="defects")
 
 
 # ── 对话 ─────────────────────────────────────────────────

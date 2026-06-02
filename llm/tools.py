@@ -108,7 +108,27 @@ class CVToolWrapper:
 
 
 class DefectToolWrapper(CVToolWrapper):
-    """隐患检测专用 — 输出包含中文类型名和面积信息。"""
+    """隐患检测专用 — 输出中文类型名和面积，同步入库到 Defect 表。"""
+
+    def execute(self, image=None, db=None, chat_image_id=None, **kwargs) -> str:
+        result = super().execute(image=image)
+        # 入库: 对话中检测到的隐患直接关联 chat_image
+        if db and chat_image_id and image is not None:
+            try:
+                raw = self._predictor.predict([image])
+                if raw and raw[0]:
+                    from db.models import Defect
+                    for d in raw[0]:
+                        db.add(Defect(
+                            chat_image_id=chat_image_id,
+                            defect_type=str(d.get("type", "")),
+                            area=float(d.get("area", 0) or 0),
+                            box_coords=d.get("box", []),
+                        ))
+                    db.commit()
+            except Exception as e:
+                print(f"[DefectTool] 入库失败: {e}")
+        return result
 
     def _format_output(self, value):
         if not value:
@@ -292,12 +312,12 @@ def get_tool_schemas(tools: dict) -> list[dict]:
     return [t.schema for t in tools.values()]
 
 
-def execute_tool(tools: dict, name: str, image=None, **kwargs) -> str:
+def execute_tool(tools: dict, name: str, image=None, db=None, chat_image_id=None, **kwargs) -> str:
     """根据名称执行 Tool，返回结果字符串。"""
     if name not in tools:
         return f"未知工具 '{name}'，可用: {', '.join(tools.keys())}"
     tool = tools[name]
-    return tool.execute(image=image, **kwargs)
+    return tool.execute(image=image, db=db, chat_image_id=chat_image_id, **kwargs)
 
 
 def format_tool_result_for_llm(tool_name: str, result: str) -> str:

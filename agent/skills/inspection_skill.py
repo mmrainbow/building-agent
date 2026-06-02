@@ -166,7 +166,7 @@ class InspectionSkill:
                     for d in result["defects"]:
                         from db.models import Defect
                         defect = Defect(
-                            image_id=img_entry.id,
+                            chat_image_id=img_entry.chat_image_id,
                             defect_type=str(d.get("type", "")),
                             area=float(d.get("area", 0) or 0),
                             box_coords=d.get("box", []),

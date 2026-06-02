@@ -1,7 +1,7 @@
 """历史记录接口测试：CRUD 与权限隔离。"""
 from .conftest import register_and_login, auth_header
 from db import SessionLocal
-from db.models import InspectionRecord, ImageInspection, Defect
+from db.models import ChatImage, ChatMessage, InspectionRecord, ImageInspection, Defect
 
 
 def _create_test_record(user_id: int) -> int:
@@ -11,9 +11,17 @@ def _create_test_record(user_id: int) -> int:
         record = InspectionRecord(user_id=user_id, status="done", report="测试巡检报告")
         db.add(record)
         db.flush()
+        # 创建 ChatImage (Defect 现在依赖它)
+        msg = ChatMessage(conversation_id=0, role="user", content="[测试图片]")
+        db.add(msg)
+        db.flush()
+        chat_img = ChatImage(message_id=msg.id, data=b"\xff\xd8\x00")
+        db.add(chat_img)
+        db.flush()
         img = ImageInspection(
             record_id=record.id,
             image_name="test.jpg",
+            chat_image_id=chat_img.id,
             material="Face Brick",
             floor="5层",
             has_extension="无加层",
@@ -21,7 +29,7 @@ def _create_test_record(user_id: int) -> int:
         db.add(img)
         db.flush()
         defect = Defect(
-            image_id=img.id,
+            chat_image_id=chat_img.id,
             defect_type="裂缝",
             area=120.5,
             box_coords=[[0, 0], [10, 0], [10, 10], [0, 10]],

@@ -9,7 +9,9 @@
 ## ER 图
 
 ```
-users ─── 1:N ─── inspection_records ─── 1:N ─── image_inspection ─── 1:N ─── defects
+users ─── 1:N ─── inspection_records ─── 1:N ─── image_inspection
+  │
+  ├── 1:N ─── conversations ─── 1:N ─── chat_messages ─── 1:N ─── chat_images ─── 1:N ─── defects
   │
   ├── 1:N ─── conversations ─── 1:N ─── chat_messages ─── 1:N ─── chat_images
   │
@@ -85,7 +87,7 @@ knowledge_documents ─── 1:N ─── knowledge_chunks
 
 ---
 
-## 3. image_inspection — 巡检图片
+## 3. image_inspection — 图片信息
 
 每张图片有独立的检测结果。
 
@@ -107,12 +109,12 @@ knowledge_documents ─── 1:N ─── knowledge_chunks
 
 ## 4. defects — 图片级隐患
 
-每条隐患属于一张巡检图片。
+每条隐患直连 `chat_images`，无论来自巡检还是对话。
 
 | 列名 | 类型 | 约束 | 说明 |
 |------|------|------|------|
 | `id` | INTEGER | PK, AUTO | |
-| `image_id` | INTEGER | FK→image_inspection.id, CASCADE | |
+| `chat_image_id` | INTEGER | FK→chat_images.id, CASCADE | 所属图片 |
 | `defect_type` | VARCHAR(50) | | 空鼓 / 渗水 / 脱落 / 裂缝 |
 | `area` | FLOAT | | 面积（像素²） |
 | `box_coords` | JSON | | 坐标框 |

@@ -189,6 +189,18 @@ class InspectionAgent:
 
         messages.append(_make_user_message(message, has_image=image is not None))
 
+        # 预创建 ChatImage，tool 执行时可直接关联缺陷
+        _chat_image_id = None
+        if image_blob:
+            from db.models import ChatMessage as CM, ChatImage as CI
+            _pre_msg = CM(conversation_id=conversation_id, role="user", content=f"[图片] {message[:50]}")
+            db.add(_pre_msg)
+            db.flush()
+            _pre_img = CI(message_id=_pre_msg.id, data=image_blob)
+            db.add(_pre_img)
+            db.flush()
+            _chat_image_id = _pre_img.id
+
         # 3. ReAct 循环
         tool_log = []
         total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
@@ -219,7 +231,8 @@ class InspectionAgent:
 
                     t_start = time.perf_counter()
                     result = execute_tool(
-                        self.tools, fn_name, image=image, user_id=str(user_id), **fn_args
+                        self.tools, fn_name, image=image, db=db,
+                        chat_image_id=_chat_image_id, user_id=str(user_id), **fn_args
                     )
                     elapsed_ms = round((time.perf_counter() - t_start) * 1000)
 
@@ -249,7 +262,8 @@ class InspectionAgent:
             final_text = final_resp.get("content") or "无法生成报告。"
 
         # 4. 持久化短期记忆，并提炼长期记忆
-        self._save_turn(db, conversation_id, message, final_text, tool_log, image_blob)
+        # 已预创建 ChatImage，不再重复保存
+        self._save_turn(db, conversation_id, message, final_text, tool_log, None)
         self._extract_memory(db, user_id, conversation_id)
 
         return {
