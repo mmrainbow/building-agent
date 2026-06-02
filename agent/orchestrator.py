@@ -1,7 +1,7 @@
 """ReAct Agent 编排器 — LLM 自主选择 Tool 执行建筑巡检。
 
 核心流程:
-    context → [LLM ⇄ Tool] 循环 → 保存消息 → 提取记忆 → 返回结果
+    context → [LLM ⇄ Tool] 循环 → _save_turn → _extract_memory → 返回结果
 
 依赖:
     llm/client.py   → LLMClient (通义千问 API)
@@ -14,6 +14,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+from agent.memory_manager import MemoryManager
 from llm.tools import execute_tool, get_tool_schemas
 
 # ── System Prompt ─────────────────────────────────────────
@@ -56,15 +57,17 @@ def _make_user_message(text: str, has_image: bool = False) -> dict:
 
 
 def _history_to_messages(records: list) -> list[dict]:
-    """将 ChatMessage ORM 对象列表转为 LLM 消息格式。"""
+    """将 ChatMessage ORM 对象列表转为 LLM 消息格式。
+
+    tool 消息保留原 role，LLM 能区分"用户说了什么"和"工具返回了什么"，
+    避免 LLM 在后续轮次重复调用已执行过的工具。
+    """
     msgs = []
     for r in records:
-        role = r.role if r.role != "tool" else "user"  # tool 消息折叠到 user 上下文
         content = r.content or ""
-        # 截断过长消息，保持上下文在 token 限制内
         if len(content) > 2000:
             content = content[:2000] + "..."
-        msgs.append({"role": role, "content": content})
+        msgs.append({"role": r.role, "content": content})
     return msgs
 
 
@@ -88,6 +91,7 @@ class InspectionAgent:
             message="这栋楼有什么安全隐患？",
             image=cv2_image,       # numpy ndarray, 可选
             db=db_session,
+            # recent_messages / memories 省略时自动 build_context
         )
         # result["response"]   → AI 文本回复
         # result["tool_log"]   → [{name, args, result, elapsed_ms}, ...]
@@ -98,6 +102,7 @@ class InspectionAgent:
         self.tools: dict[str, Any] = {}
         self.max_rounds = max_rounds
         self._tool_schemas: list[dict] | None = None
+        self.memory_manager = MemoryManager()
 
     @property
     def tool_schemas(self) -> list[dict]:
@@ -112,6 +117,7 @@ class InspectionAgent:
         message: str,
         db: Any,
         image=None,
+        image_blob: bytes | None = None,
         recent_messages: list | None = None,
         memories: list | None = None,
     ) -> dict:
@@ -123,8 +129,9 @@ class InspectionAgent:
             message: 用户输入文本
             db: SQLAlchemy Session
             image: 可选的 numpy 图像数组
-            recent_messages: 最近历史消息列表 (ChatMessage ORM 对象)
-            memories: 长期记忆列表 (ConversationMemory ORM 对象)
+            image_blob: JPEG 字节，持久化到 chat_images 表
+            recent_messages: 最近历史消息；为 None 时由 build_context 自动拉取
+            memories: 长期记忆；为 None 时由 build_context 自动拉取
 
         Returns:
             {
@@ -134,24 +141,32 @@ class InspectionAgent:
                 "usage": dict,            # token 用量总计
             }
         """
-        # 1. 组装消息列表
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        # 1. 聊前上下文（未传入时隐式组装）
+        if recent_messages is None or memories is None:
+            ctx = self.memory_manager.build_context(
+                db, user_id, conversation_id, message
+            )
+            if recent_messages is None:
+                recent_messages = ctx["recent_messages"]
+            if memories is None:
+                memories = ctx["memories"]
 
-        # 注入长期记忆
+        # 2. 组装消息列表
+        system_content = SYSTEM_PROMPT
         if memories:
             mem_text = "## 历史相关记忆\n" + "\n".join(
                 f"- [{m.memory_type}] {m.content}" for m in memories[:5]
             )
-            messages.append({"role": "system", "content": mem_text})
+            system_content = f"{SYSTEM_PROMPT}\n\n{mem_text}"
 
-        # 注入近期对话历史
+        messages = [{"role": "system", "content": system_content}]
+
         if recent_messages:
             messages.extend(_history_to_messages(recent_messages))
 
-        # 注入当前用户消息
         messages.append(_make_user_message(message, has_image=image is not None))
 
-        # 2. ReAct 循环
+        # 3. ReAct 循环
         tool_log = []
         total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         final_text = ""
@@ -181,7 +196,7 @@ class InspectionAgent:
 
                     t_start = time.perf_counter()
                     result = execute_tool(
-                        self.tools, fn_name, image=image, **fn_args
+                        self.tools, fn_name, image=image, user_id=str(user_id), **fn_args
                     )
                     elapsed_ms = round((time.perf_counter() - t_start) * 1000)
 
@@ -210,8 +225,9 @@ class InspectionAgent:
             final_resp = self.llm.chat(messages)
             final_text = final_resp.get("content") or "无法生成报告。"
 
-        # 3. 持久化消息
-        self._save_turn(db, conversation_id, message, final_text, tool_log)
+        # 4. 持久化短期记忆，并提炼长期记忆
+        self._save_turn(db, conversation_id, message, final_text, tool_log, image_blob)
+        self._extract_memory(db, user_id, conversation_id)
 
         return {
             "response": final_text,
@@ -229,11 +245,12 @@ class InspectionAgent:
         user_msg: str,
         assistant_msg: str,
         tool_log: list[dict],
+        user_image_blob: bytes | None = None,
     ) -> None:
         """保存本轮对话到 ChatMessage 表。"""
         from db.chat_crud import add_message
 
-        add_message(db, conversation_id, "user", user_msg)
+        add_message(db, conversation_id, "user", user_msg, image_blob=user_image_blob)
         if assistant_msg:
             meta = {"tool_calls": tool_log} if tool_log else None
             add_message(
@@ -243,3 +260,12 @@ class InspectionAgent:
                 assistant_msg,
                 metadata=meta,
             )
+
+    def _extract_memory(self, db: Any, user_id: int, conversation_id: int) -> None:
+        """ReAct 落库后，用 MemoryManager 从最近对话提炼长期记忆。"""
+        from db.chat_crud import get_recent_messages
+
+        recent = get_recent_messages(db, conversation_id, limit=20)
+        self.memory_manager.extract_and_save_memory(
+            db, user_id, conversation_id, self.llm, recent
+        )

@@ -13,6 +13,7 @@ requests>=2.25.0
 scikit-learn>=1.0.0
 python-multipart>=0.0.5
 sqlalchemy>=2.0.0
+python-dotenv>=1.0.0
 pymysql>=1.1.0
 bcrypt>=4.0.0
 python-jose[cryptography]>=3.3.0
@@ -21,6 +22,16 @@ transformers>=4.49.0
 accelerate>=0.26.0
 safetensors>=0.4.0
 Pillow>=10.0.0
+
+# RAG dependencies
+langchain-text-splitters>=0.2.0
+langchain-community>=0.0.10
+langchain-openai>=0.0.4
+chromadb>=0.4.0
+pypdf>=4.0.0
+python-docx>=1.0.0
+python-dotenv>=0.21.0
+tqdm>=4.60.0
 
 # 测试
 pytest>=8.0.0

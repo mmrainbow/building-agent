@@ -58,7 +58,13 @@ def delete_conversation(db: Session, conversation_id: int) -> bool:
 
 
 def add_message(
-    db: Session, conversation_id: int, role: str, content: str, metadata: dict | None = None
+    db: Session,
+    conversation_id: int,
+    role: str,
+    content: str,
+    metadata: dict | None = None,
+    image_blob: bytes | None = None,
+    mime_type: str = "image/jpeg",
 ) -> ChatMessage:
     msg = ChatMessage(
         conversation_id=conversation_id,
@@ -67,6 +73,13 @@ def add_message(
         metadata_=metadata or {},
     )
     db.add(msg)
+    db.flush()  # 获取 msg.id
+
+    # 图片存入 chat_images 表
+    if image_blob:
+        from .models import ChatImage
+        img = ChatImage(message_id=msg.id, mime_type=mime_type, data=image_blob)
+        db.add(img)
 
     conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
     if conv:

@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     JSON,
+    LargeBinary,
     String,
     Text,
 )
@@ -19,8 +20,8 @@ Base = declarative_base()
 
 
 class UserRole(str, enum.Enum):
-    inspector = "inspector"  # 默认角色
-    admin = "admin"
+    user = "user"  # 默认角色（普通用户）
+    admin = "admin"  # 管理员
 
 
 class MemoryType(str, enum.Enum):
@@ -46,7 +47,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(50), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
-    role = Column(Enum(UserRole), default=UserRole.inspector, nullable=False)
+    role = Column(Enum(UserRole), default=UserRole.user, nullable=False)
     is_active = Column(Boolean, default=True)  # 软删除标记
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     last_login_at = Column(DateTime)
@@ -72,35 +73,58 @@ class User(Base):
 
 
 class InspectionRecord(Base):
+    """一次巡检会话 — 对同一建筑的多张图片进行检测，汇总生成一份报告。"""
     __tablename__ = "inspection_records"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    image_name = Column(String(255))
-    material = Column(String(100))
-    floor = Column(String(20))
-    has_extension = Column(String(20))
+    status = Column(String(20), default="collecting")  # collecting | done
     report = Column(Text)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="records")
-    defects = relationship(
-        "Defect", back_populates="record", cascade="all, delete-orphan"
+    images = relationship(
+        "ImageInspection", back_populates="record", cascade="all, delete-orphan"
     )
 
 
-class Defect(Base):
-    __tablename__ = "defects"
+class ImageInspection(Base):
+    """巡检中的单张图片 — 检测结果 + 指向 chat_images（图片本体不重复存）。"""
+    __tablename__ = "image_inspection"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     record_id = Column(
         Integer, ForeignKey("inspection_records.id", ondelete="CASCADE"), nullable=False
     )
+    chat_image_id = Column(
+        Integer, ForeignKey("chat_images.id", ondelete="SET NULL"), nullable=True
+    )
+    image_name = Column(String(255))
+    material = Column(String(100))
+    floor = Column(String(20))
+    has_extension = Column(String(20))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    record = relationship("InspectionRecord", back_populates="images")
+    chat_image = relationship("ChatImage", backref="inspection_images")
+    defects = relationship(
+        "Defect", back_populates="image", cascade="all, delete-orphan"
+    )
+
+
+class Defect(Base):
+    """图片级的隐患 — 每条缺陷属于某张巡检图片。"""
+    __tablename__ = "defects"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    image_id = Column(
+        Integer, ForeignKey("image_inspection.id", ondelete="CASCADE"), nullable=False
+    )
     defect_type = Column(String(50))
     area = Column(Float)
     box_coords = Column(JSON)
 
-    record = relationship("InspectionRecord", back_populates="defects")
+    image = relationship("ImageInspection", back_populates="defects")
 
 
 # ── 对话 ─────────────────────────────────────────────────
@@ -146,6 +170,24 @@ class ChatMessage(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     conversation = relationship("Conversation", back_populates="messages")
+    images = relationship(
+        "ChatImage", back_populates="message", cascade="all, delete-orphan"
+    )
+
+
+class ChatImage(Base):
+    """用户上传的图片 — BLOB 存数据库，项目移动不丢数据。"""
+    __tablename__ = "chat_images"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    message_id = Column(
+        Integer, ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False
+    )
+    mime_type = Column(String(50), default="image/jpeg")
+    data = Column(LargeBinary, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    message = relationship("ChatMessage", back_populates="images")
 
 
 # ── 长期记忆 ─────────────────────────────────────────────

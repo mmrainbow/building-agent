@@ -13,6 +13,7 @@ from api.auth import (
     get_current_user,
     require_admin,
 )
+from api.chat import router as chat_router
 from api.schemas import (
     HealthResponse,
     InspectionResult,
@@ -66,6 +67,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Building Inspection API", lifespan=lifespan)
+app.include_router(chat_router)
 
 
 def _can_access_record(user: dict, record) -> bool:
@@ -75,17 +77,31 @@ def _can_access_record(user: dict, record) -> bool:
 
 
 def _record_to_dict(record) -> dict:
+    images = record.images or []
+    all_defects = []
+    materials = []
+    floors = []
+    extensions = []
+    for img in images:
+        materials.append(img.material or "")
+        floors.append(img.floor or "")
+        extensions.append(img.has_extension or "")
+        for defect in (img.defects or []):
+            all_defects.append({
+                "type": defect.defect_type,
+                "area": defect.area,
+                "box": defect.box_coords,
+                "image_id": img.id,
+            })
+
     return {
         "id": record.id,
-        "image_name": record.image_name,
-        "material": record.material,
-        "floor": record.floor,
-        "has_extension": record.has_extension,
+        "image_count": len(images),
+        "material": ", ".join(set(m for m in materials if m)) or "未知",
+        "floor": ", ".join(set(f for f in floors if f)) or "未知",
+        "has_extension": ", ".join(set(e for e in extensions if e)) or "未知",
         "report": record.report,
-        "defects": [
-            {"type": defect.defect_type, "area": defect.area, "box": defect.box_coords}
-            for defect in (record.defects or [])
-        ],
+        "defects": all_defects,
         "created_at": record.created_at.isoformat() if record.created_at else None,
     }
 
@@ -193,6 +209,7 @@ async def predict(
             has_extension=result.get("has_extension", ""),
             defects=result.get("defects", []),
             record_id=record.id,
+            image_count=len(record.images or []),
         )
     finally:
         if os.path.exists(tmp_path):
@@ -273,7 +290,7 @@ def health():
     import requests as req
     from sqlalchemy import text
 
-    model_dir = os.path.join(os.path.dirname(__file__), "..", "models")
+    model_dir = os.path.join(os.path.dirname(__file__), "..", "model_weights")
     required_models = [
         "add_predict.pth",
         "best.pt",

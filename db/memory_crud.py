@@ -95,18 +95,23 @@ def search_memories_by_keyword(
     db: Session,
     user_id: int,
     keyword: str,
+    conversation_id: int | None = None,
     limit: int = 10,
 ) -> list[ConversationMemory]:
     """基于 SQLite LIKE 的简单关键词检索（阶段 0.5 方案）。"""
     pattern = f"%{keyword}%"
-    return (
+    query = (
         db.query(ConversationMemory)
         .filter(
             ConversationMemory.user_id == user_id,
             ConversationMemory.content.like(pattern)
             | ConversationMemory.key.like(pattern),
         )
-        .order_by(ConversationMemory.importance.desc())
+    )
+    if conversation_id is not None:
+        query = query.filter(ConversationMemory.conversation_id == conversation_id)
+    return (
+        query.order_by(ConversationMemory.importance.desc())
         .limit(limit)
         .all()
     )

@@ -8,7 +8,7 @@ class TestRegister:
         assert resp.status_code == 201
         data = resp.json()
         assert data["username"] == "tester"
-        assert data["role"] == "inspector"
+        assert data["role"] == "user"
         assert "id" in data
 
     def test_register_duplicate_username(self, client):
