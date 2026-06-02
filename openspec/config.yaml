@@ -2,6 +2,7 @@ schema: spec-driven
 
 context: |
   Tech stack: Python 3.10, FastAPI, Gradio 6, SQLAlchemy 2, SQLite, PyTorch, YOLO (ultralytics), OpenCV, LangGraph, ChromaDB
+  Model weights: model_weights/ directory (gitignored)
   LLM: 通义千问 API (qwen-plus/qwen3.6-flash), Embedding: text-embedding-v3
   Auth: JWT (python-jose) + bcrypt
   Domain: 建筑外立面巡检 — AI 检测材质/楼层/加层/隐患，生成中文报告

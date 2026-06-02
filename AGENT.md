@@ -122,7 +122,7 @@ GET  /health               数据库 + Ollama + 模型文件状态
 | 持久化 | InspectionRecord + ImageInspection + Defect | ChatMessage + ChatImage |
 
 ## 禁止事项
-- 不要删除 `models/` 下的 `.pt`/`.pth` 模型权重文件
+- 不要删除 `model_weights/` 下的 `.pt`/`.pth` 模型权重文件
 - 不要提交 `.env`、`chroma_db/`、`rag_data/`、`*.docx`
 - 不要在代码中硬编码密码、密钥或内网地址
 - 修改数据模型后必须同步更新测试

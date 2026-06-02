@@ -609,7 +609,7 @@ Gradio, SQLAlchemy, Ollama (qwen2:1.5b), YOLO, PyTorch。
 [由 Tech Lead 更新，如: "阶段0 - 模块拆分中"]
 
 ## 禁止事项
-- 不要删除或修改 models/ 下的模型权重文件
+- 不要删除或修改 model_weights/ 下的模型权重文件
 - 不要提交 .env 文件
 - 不要在代码中硬编码密码或密钥
 - 修改数据库模型后必须同时更新迁移脚本
@@ -683,7 +683,7 @@ Gradio, SQLAlchemy, Ollama (qwen2:1.5b), YOLO, PyTorch。
 
 ## 模型信息
 - 模型架构: [YOLO / EfficientNet / 其他]
-- 模型权重路径: models/[weights_file]
+- 模型权重路径: model_weights/[weights_file]
 - 输入: [描述]
 - 输出格式: [描述，如: List[str], List[dict]]
 

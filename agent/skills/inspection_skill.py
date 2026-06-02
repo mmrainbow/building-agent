@@ -13,7 +13,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-MODEL_DIR = Path(__file__).parent.parent.parent / "models"
+MODEL_DIR = Path(__file__).parent.parent.parent / "model_weights"
 MIN_IMAGES = 3
 
 INSPECT_SCHEMA = {

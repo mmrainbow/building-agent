@@ -6,8 +6,8 @@ __pycache__/
 *.db
 *.sqlite
 *.log
-models/*.pt
-models/*.pth
+model_weights/*.pt
+model_weights/*.pth
 inspection.db
 .env
 *.docx

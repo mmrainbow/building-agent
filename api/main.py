@@ -290,7 +290,7 @@ def health():
     import requests as req
     from sqlalchemy import text
 
-    model_dir = os.path.join(os.path.dirname(__file__), "..", "models")
+    model_dir = os.path.join(os.path.dirname(__file__), "..", "model_weights")
     required_models = [
         "add_predict.pth",
         "best.pt",

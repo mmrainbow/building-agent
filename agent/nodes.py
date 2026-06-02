@@ -18,7 +18,7 @@ load_dotenv()
 LLM_API_KEY = os.getenv("LLM_API_KEY", os.getenv("EMBEDDING_API_KEY", ""))
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen-turbo")
-MODEL_DIR = Path(__file__).parent.parent / "models"
+MODEL_DIR = Path(__file__).parent.parent / "model_weights"
 
 _floor = FloorPredictor(MODEL_DIR / "main_building.pt", MODEL_DIR / "outer_obj.pt")
 _added = AddedFloorPredictor(MODEL_DIR / "add_predict.pth")

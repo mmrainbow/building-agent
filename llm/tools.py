@@ -172,7 +172,7 @@ class KnowledgeSearchTool:
 # ── Tool 构建工厂 ──────────────────────────────────────────
 
 
-MODEL_DIR = Path(__file__).parent.parent / "models"
+MODEL_DIR = Path(__file__).parent.parent / "model_weights"
 
 
 def build_tools(model_dir: str | None = None) -> dict[str, Any]:
