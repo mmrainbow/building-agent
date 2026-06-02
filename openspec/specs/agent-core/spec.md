@@ -1,7 +1,7 @@
 # Agent Core
 
 ## Purpose
-ReAct Agent 编排引擎，LLM 自主选择 Tool 执行建筑巡检任务，支持双层记忆和上下文管理。
+ReAct Agent 编排引擎，LLM 自主选择 Tool 执行建筑巡检任务，支持双层记忆和上下文管理。支持两种 LLM 后端：远程通义千问 DashScope API（默认）和本地 vLLM 服务化的微调 Qwen2.5-VL 模型（`USE_LOCAL_LLM=true`）。
 
 ## Requirements
 
@@ -55,6 +55,21 @@ Agent SHALL maintain short-term and long-term memory for each conversation.
 ### Requirement: Single Agent Instance
 Both Gradio and FastAPI paths SHALL share one `InspectionAgent` singleton via `llm/agent_factory.py`.
 
+### Requirement: LLM Backend Switching
+The agent SHALL support switching between remote API and local vLLM backend via environment variables without code changes.
+
+#### Scenario: Remote API (default)
+- **WHEN** `USE_LOCAL_LLM` is unset or false
+- **THEN** `agent_factory` SHALL create `LLMClient` with `tool_call_mode="native"` pointing to DashScope API
+
+#### Scenario: Local vLLM
+- **WHEN** `USE_LOCAL_LLM=true` and vLLM server is running on `localhost:8000`
+- **THEN** `agent_factory` SHALL create `LLMClient` with `base_url="http://localhost:8000/v1"`, model from `LLM_MODEL`, and `tool_call_mode` from `LLM_TOOL_CALL_MODE` (default "prompt")
+
+#### Scenario: Prompt-based tool calling fallback
+- **WHEN** `LLM_TOOL_CALL_MODE=prompt` and `tools` are provided
+- **THEN** `LLMClient.chat()` SHALL inject tool schemas as text into the system prompt, remove `tools` from the API request body, and parse `<tool_call>` blocks from the response text
+
 ## Dependencies
-- **Depends on**: `llm/client.py` (LLM API calls), `llm/tools.py` (5 Tool definitions → predictors), `agent/memory_manager.py` (context assembly), `agent/rag.py` (regulation search), `db/` (persistence)
+- **Depends on**: `llm/client.py` (LLM API calls + prompt fallback), `llm/react_parser.py` (text-based tool call parsing), `llm/tools.py` (5 Tool definitions → predictors), `agent/memory_manager.py` (context assembly), `agent/rag.py` (regulation search), `db/` (persistence)
 - **Depended on by**: `api/chat.py` (chat endpoint), `services/chat_service.py` (Gradio chat callbacks), `app` (智能问答 Tab)

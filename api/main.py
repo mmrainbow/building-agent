@@ -1,8 +1,7 @@
 import os
-import tempfile
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -16,7 +15,6 @@ from api.auth import (
 from api.chat import router as chat_router
 from api.schemas import (
     HealthResponse,
-    InspectionResult,
     LoginRequest,
     RecordResponse,
     RefreshRequest,
@@ -37,27 +35,7 @@ from db import (
     get_record_detail,
     get_user_records,
     init_db,
-    save_inspection,
 )
-
-# 懒加载: agent 在首次请求时才初始化，避免 import 时依赖 torch/YOLO
-# set_agent() 允许测试注入 mock，避免测试依赖真实模型文件
-_agent = None
-
-
-def get_agent():
-    global _agent
-    if _agent is None:
-        from agent.graph import build_agent
-
-        _agent = build_agent()
-    return _agent
-
-
-def set_agent(agent):
-    """注入 mock agent，仅供测试使用。"""
-    global _agent
-    _agent = agent
 
 
 @asynccontextmanager
@@ -178,42 +156,6 @@ def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
 
 
 # ── 核心业务端点 ──────────────────────────────────────────
-
-
-@app.post("/predict", response_model=InspectionResult)
-async def predict(
-    image: UploadFile = File(...),
-    user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-        tmp.write(await image.read())
-        tmp_path = tmp.name
-
-    try:
-        result = get_agent().invoke({"image_path": tmp_path})
-        record = save_inspection(
-            db=db,
-            user_id=user["user_id"],
-            image_name=image.filename or "api_upload.jpg",
-            material=result.get("material", ""),
-            floor=result.get("floor", ""),
-            has_extension=result.get("has_extension", ""),
-            report=result.get("report"),
-            defects=result.get("defects", []),
-        )
-        return InspectionResult(
-            report=result.get("report"),
-            material=result.get("material", ""),
-            floor=result.get("floor", ""),
-            has_extension=result.get("has_extension", ""),
-            defects=result.get("defects", []),
-            record_id=record.id,
-            image_count=len(record.images or []),
-        )
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
 
 
 @app.get("/history", response_model=list[RecordResponse])

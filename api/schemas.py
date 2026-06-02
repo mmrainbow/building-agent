@@ -34,16 +34,6 @@ class UserResponse(BaseModel):
     role: str
 
 
-class InspectionResult(BaseModel):
-    report: str | None
-    material: str | None
-    floor: str | None
-    has_extension: str | None
-    defects: list[dict]
-    record_id: int | None
-    image_count: int = 1
-
-
 class DefectInfo(BaseModel):
     type: str
     area: float

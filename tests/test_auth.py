@@ -79,10 +79,6 @@ class TestTokenRefresh:
 
 
 class TestAuthRequired:
-    def test_predict_without_token_returns_401(self, client):
-        resp = client.post("/predict")
-        assert resp.status_code == 401
-
     def test_history_without_token_returns_401(self, client):
         resp = client.get("/history")
         assert resp.status_code == 401
@@ -91,15 +87,14 @@ class TestAuthRequired:
         resp = client.get("/statistics")
         assert resp.status_code == 401
 
-    def test_predict_with_token_succeeds(self, client):
+    def test_chat_with_token_succeeds(self, client):
         token = register_and_login(client)
-        with open(__file__, "rb") as f:
-            resp = client.post(
-                "/predict",
-                files={"image": ("test.jpg", f, "image/jpeg")},
-                headers=auth_header(token),
-            )
-        # 可能 200（mock agent 返回有效结果）或其他非 401 错误
+        resp = client.post(
+            "/chat/send",
+            json={"message": "你好"},
+            headers=auth_header(token),
+        )
+        # 无 LLM 后端时可能 500，但不应该是 401
         assert resp.status_code != 401
 
 

@@ -1,6 +1,5 @@
 import os
 import tempfile
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -43,25 +42,8 @@ def setup_db():
 
 @pytest.fixture
 def client():
-    """注入 mock agent 的 FastAPI TestClient。"""
-    from api.main import app, set_agent
-
-    mock_agent = MagicMock()
-    mock_agent.invoke.return_value = {
-        "report": "测试巡检报告：建筑整体状况良好。",
-        "material": "Face Brick",
-        "floor": "5层",
-        "has_extension": "无加层",
-        "defects": [
-            {
-                "id": 1,
-                "type": "裂缝",
-                "area": 120.5,
-                "box": [[0, 0], [10, 0], [10, 10], [0, 10]],
-            }
-        ],
-    }
-    set_agent(mock_agent)
+    """FastAPI TestClient。"""
+    from api.main import app
 
     # 覆盖 get_db 依赖，确保每次请求都使用测试数据库的新会话
     app.dependency_overrides[original_get_db] = override_get_db
@@ -70,7 +52,6 @@ def client():
         yield c
 
     app.dependency_overrides.clear()
-    set_agent(None)
 
 
 def register_and_login(client: TestClient, username: str = "testuser", password: str = "test123456") -> str:

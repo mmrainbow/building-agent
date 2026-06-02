@@ -1,6 +1,49 @@
 """历史记录接口测试：CRUD 与权限隔离。"""
-import io
 from .conftest import register_and_login, auth_header
+from db import SessionLocal
+from db.models import InspectionRecord, ImageInspection, Defect
+
+
+def _create_test_record(user_id: int) -> int:
+    """辅助函数：直接在 DB 中创建一条巡检记录，返回 record_id。"""
+    db = SessionLocal()
+    try:
+        record = InspectionRecord(user_id=user_id, status="done", report="测试巡检报告")
+        db.add(record)
+        db.flush()
+        img = ImageInspection(
+            record_id=record.id,
+            image_name="test.jpg",
+            material="Face Brick",
+            floor="5层",
+            has_extension="无加层",
+        )
+        db.add(img)
+        db.flush()
+        defect = Defect(
+            image_id=img.id,
+            defect_type="裂缝",
+            area=120.5,
+            box_coords=[[0, 0], [10, 0], [10, 10], [0, 10]],
+        )
+        db.add(defect)
+        db.commit()
+        return record.id
+    finally:
+        db.close()
+
+
+def _get_user_id(client, username: str = "testuser", password: str = "test123456") -> int:
+    """注册并登录，返回 user_id。"""
+    from db import SessionLocal as SL
+    from db.models import User
+    token = register_and_login(client, username, password)
+    db = SL()
+    try:
+        user = db.query(User).filter(User.username == username).first()
+        return user.id
+    finally:
+        db.close()
 
 
 class TestHistory:
@@ -10,16 +53,18 @@ class TestHistory:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    def test_history_after_predict(self, client):
-        token = register_and_login(client)
-        # 先做一次巡检
-        img = io.BytesIO(b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01")
-        client.post(
-            "/predict",
-            files={"image": ("a.jpg", img, "image/jpeg")},
-            headers=auth_header(token),
-        )
-        # 查历史
+    def test_history_after_inspection(self, client):
+        token = register_and_login(client, "user1")
+        # 直接在 DB 创建记录
+        from db import SessionLocal as SL
+        from db.models import User
+        db = SL()
+        try:
+            user = db.query(User).filter(User.username == "user1").first()
+            _create_test_record(user.id)
+        finally:
+            db.close()
+
         resp = client.get("/history", headers=auth_header(token))
         assert resp.status_code == 200
         records = resp.json()
@@ -39,15 +84,16 @@ class TestHistory:
 class TestPermissionIsolation:
     """验证普通用户之间不能互相查看巡检记录。"""
     def test_user_cannot_see_others_records(self, client):
-        # 用户 A 做一次巡检
+        # 用户 A 创建一条记录
         token_a = register_and_login(client, "user_a", "pass123")
-        img = io.BytesIO(b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01")
-        resp = client.post(
-            "/predict",
-            files={"image": ("a.jpg", img, "image/jpeg")},
-            headers=auth_header(token_a),
-        )
-        record_id = resp.json()["record_id"]
+        from db import SessionLocal as SL
+        from db.models import User
+        db = SL()
+        try:
+            user_a = db.query(User).filter(User.username == "user_a").first()
+            record_id = _create_test_record(user_a.id)
+        finally:
+            db.close()
 
         # 用户 B 尝试查看 A 的记录
         token_b = register_and_login(client, "user_b", "pass456")
@@ -55,8 +101,8 @@ class TestPermissionIsolation:
         assert resp.status_code == 403
 
     def test_admin_can_see_all_records(self, client):
+        from db import create_user
         from db.models import User, UserRole
-        from db import SessionLocal, create_user
 
         # 手动创建 admin 用户
         db = SessionLocal()
@@ -65,15 +111,16 @@ class TestPermissionIsolation:
         finally:
             db.close()
 
-        # 普通用户做巡检
-        token_user = register_and_login(client, "normal", "pass123")
-        img = io.BytesIO(b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01")
-        resp = client.post(
-            "/predict",
-            files={"image": ("a.jpg", img, "image/jpeg")},
-            headers=auth_header(token_user),
-        )
-        record_id = resp.json()["record_id"]
+        # 普通用户创建记录
+        db = SessionLocal()
+        try:
+            normal_user = db.query(User).filter(User.username == "normal").first()
+            if not normal_user:
+                token = register_and_login(client, "normal", "pass123")
+                normal_user = db.query(User).filter(User.username == "normal").first()
+            record_id = _create_test_record(normal_user.id)
+        finally:
+            db.close()
 
         # Admin 可以查看
         resp = client.post("/login", json={"username": "admin_user", "password": "admin123"})
