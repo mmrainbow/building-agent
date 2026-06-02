@@ -28,22 +28,24 @@ EMBEDDING_BASE_URL = os.getenv(
     "EMBEDDING_BASE_URL",
     os.getenv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
 )
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-v4")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-v3")
 CHROMA_DB_DIR = Path(__file__).parent.parent / "chroma_db"
 
 
 # ─── Embedding 实现 ───────────────────────────────────────────────
 class _DashScopeEmbeddings(Embeddings):
-    """阿里云百炼 embedding API 兼容实现（批量发送，支持进度条）"""
+    """阿里云 DashScope embedding — 原生 API，不走兼容模式。"""
 
     def __init__(self, api_key: str, base_url: str, model: str):
         self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
         self.model = model
+        self.url = (
+            "https://dashscope.aliyuncs.com/api/v1/services/embeddings/"
+            "text-embedding/text-embedding"
+        )
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """批量 embedding：每次最多 25 条，带进度条"""
-        url = f"{self.base_url}/embeddings"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -52,24 +54,29 @@ class _DashScopeEmbeddings(Embeddings):
         batch_size = 25
         total = len(texts)
 
-        # 进度条
         try:
             from tqdm import tqdm
+
             pbar = tqdm(total=total, desc="[RAG] Embedding", unit="chunk")
         except ImportError:
             pbar = None
 
         for i in range(0, total, batch_size):
-            batch = texts[i:i + batch_size]
+            batch = texts[i : i + batch_size]
             resp = requests.post(
-                url, headers=headers,
-                json={"model": self.model, "input": batch},
+                self.url,
+                headers=headers,
+                json={
+                    "model": self.model,
+                    "input": {"texts": batch},
+                    "parameters": {},
+                },
                 timeout=120,
             )
             resp.raise_for_status()
             data = resp.json()
-            for item in data["data"]:
-                all_embeddings.append(item["embedding"])
+            for emb in data["output"]["embeddings"]:
+                all_embeddings.append(emb["embedding"])
             if pbar:
                 pbar.update(len(batch))
 
