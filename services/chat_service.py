@@ -59,7 +59,7 @@ def chat_with_llm(message, history, user_state, image=None):
         return TEXT["login_required"]
     if not (message or "").strip():
         return ""
-    if not os.getenv("EMBEDDING_API_KEY"):
+    if not (os.getenv("LLM_API_KEY") or os.getenv("EMBEDDING_API_KEY")):
         return TEXT["llm_no_api_key"]
 
     db = SessionLocal()

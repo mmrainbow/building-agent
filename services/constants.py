@@ -13,5 +13,5 @@ TEXT = {
     "inspect_failed": "巡检失败",
     "no_report": "未生成报告。",
     "llm_no_context": "请先完成一次巡检，再进行问答。",
-    "llm_no_api_key": "未配置 EMBEDDING_API_KEY，请在 .env 中设置后重启应用。",
+    "llm_no_api_key": "未配置 LLM_API_KEY 或 EMBEDDING_API_KEY，请在 .env 中设置后重启应用。",
 }

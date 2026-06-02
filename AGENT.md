@@ -49,7 +49,8 @@ db/        → 数据访问: SQLAlchemy ORM + CRUD
 
 ## 关键环境变量
 ```
-EMBEDDING_API_KEY    通义千问 API 密钥（LLM + Embedding 共用）
+LLM_API_KEY          通义千问 Chat API 密钥
+EMBEDDING_API_KEY    Embedding API 密钥（默认复用 LLM_API_KEY）
 LLM_MODEL            大模型名称 (默认 qwen-plus)
 LLM_BASE_URL         LLM API 地址 (默认 dashscope.aliyuncs.com/compatible-mode/v1)
 EMBEDDING_MODEL      Embedding 模型 (默认 text-embedding-v3)

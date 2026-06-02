@@ -19,7 +19,7 @@ from langchain_core.embeddings import Embeddings
 
 load_dotenv()
 
-EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "")
+EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", os.getenv("LLM_API_KEY", ""))
 EMBEDDING_BASE_URL = os.getenv(
     "EMBEDDING_BASE_URL",
     os.getenv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),

@@ -1,7 +1,7 @@
 """通义千问 API 客户端 — OpenAI 兼容格式，支持 function calling。
 
 环境变量:
-    EMBEDDING_API_KEY  通义千问 API 密钥（LLM + Embedding 共用）
+    LLM_API_KEY        通义千问 Chat API 密钥
     LLM_MODEL          模型名称，默认 qwen-plus
     LLM_BASE_URL       API 地址，默认 DashScope 兼容端点
 """
@@ -12,7 +12,7 @@ from typing import Any
 
 import requests
 
-LLM_API_KEY = os.getenv("EMBEDDING_API_KEY", "")
+LLM_API_KEY = os.getenv("LLM_API_KEY", os.getenv("EMBEDDING_API_KEY", ""))
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen-plus")
 LLM_BASE_URL = os.getenv(
     "LLM_BASE_URL",

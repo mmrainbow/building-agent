@@ -217,7 +217,7 @@ class InspectionSkill:
             resp = requests.post(
                 f"{os.getenv('LLM_BASE_URL', 'https://dashscope.aliyuncs.com/compatible-mode/v1')}/chat/completions",
                 headers={
-                    "Authorization": f"Bearer {os.getenv('EMBEDDING_API_KEY', '')}",
+                    "Authorization": f"Bearer {os.getenv('LLM_API_KEY', os.getenv('EMBEDDING_API_KEY', ''))}",
                     "Content-Type": "application/json",
                 },
                 json={
