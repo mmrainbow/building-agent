@@ -83,10 +83,6 @@ class TestAuthRequired:
         resp = client.get("/history")
         assert resp.status_code == 401
 
-    def test_statistics_without_token_returns_401(self, client):
-        resp = client.get("/statistics")
-        assert resp.status_code == 401
-
     def test_chat_with_token_succeeds(self, client):
         token = register_and_login(client)
         resp = client.post(

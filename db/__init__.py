@@ -25,10 +25,6 @@ from .crud import (
     get_user_records,
     get_all_records,
     get_record_detail,
-    get_defect_type_distribution,
-    get_material_distribution,
-    get_daily_inspection_count,
-    get_overall_summary,
 )
 from .chat_crud import (
     create_conversation,

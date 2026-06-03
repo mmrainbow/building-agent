@@ -20,7 +20,6 @@ from services import (
     handle_login,
     handle_register,
     load_history,
-    load_statistics,
     show_record_detail,
 )
 
@@ -173,19 +172,6 @@ with gr.Blocks(title=TEXT["title"]) as demo:
                     outputs=[history_export_file],
                 )
 
-            with gr.TabItem("统计分析"):
-                stats_btn = gr.Button("刷新统计")
-                stats_summary = gr.Markdown("")
-                with gr.Row():
-                    stats_pie = gr.Plot(label="隐患类型分布")
-                    stats_bar = gr.Plot(label="材质分布")
-                stats_line = gr.Plot(label="近30天巡检趋势")
-
-                stats_btn.click(
-                    fn=load_statistics,
-                    inputs=[session_state],
-                    outputs=[stats_pie, stats_bar, stats_line, stats_summary],
-                )
 
             with gr.TabItem("智能问答"):
                 with gr.Row():

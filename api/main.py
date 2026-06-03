@@ -19,7 +19,6 @@ from api.schemas import (
     RecordResponse,
     RefreshRequest,
     RegisterRequest,
-    StatisticsResponse,
     TokenResponse,
     UserResponse,
 )
@@ -27,11 +26,7 @@ from db import (
     authenticate_user,
     create_user,
     get_all_records,
-    get_daily_inspection_count,
     get_db,
-    get_defect_type_distribution,
-    get_material_distribution,
-    get_overall_summary,
     get_record_detail,
     get_user_records,
     init_db,
@@ -184,20 +179,6 @@ def record_detail(
     if not _can_access_record(user, record):
         raise HTTPException(status_code=403, detail="No permission to access this record")
     return _record_to_dict(record)
-
-
-@app.get("/statistics", response_model=StatisticsResponse)
-def statistics(
-    user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    query_user_id = None if user["role"] == "admin" else user["user_id"]
-    return StatisticsResponse(
-        summary=get_overall_summary(db, query_user_id),
-        defect_distribution=get_defect_type_distribution(db, query_user_id),
-        material_distribution=get_material_distribution(db, query_user_id),
-        daily_trend=get_daily_inspection_count(db, 30),
-    )
 
 
 # ── 管理端点 ──────────────────────────────────────────────

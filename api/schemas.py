@@ -52,13 +52,6 @@ class RecordResponse(BaseModel):
     created_at: str | None
 
 
-class StatisticsResponse(BaseModel):
-    summary: dict
-    defect_distribution: list[dict]
-    material_distribution: list[dict]
-    daily_trend: list[dict]
-
-
 class HealthResponse(BaseModel):
     status: str
     database: str
