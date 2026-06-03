@@ -28,29 +28,20 @@ AI 驱动的建筑外立面巡检系统 — 三 Agent 协同架构。
 
 ## 项目结构
 ```
-agent/          Manager Agent (orchestrator, memory_manager, rag, skills/)
-predictors/     CV模型预测器 (材质/楼层/加层/隐患)
-llm/            LLM 客户端 + 6 个 Tool + Agent工厂 + Report Agent 服务
-  client.py          OpenAI 兼容客户端
-  tools.py           6 个 Tool (4 CV + search_knowledge + generate_report)
-  agent_factory.py   Manager Agent 单例 (默认远程 API)
-  memory_agent.py    Memory Agent 工厂 (独立 qwen-turbo)
-  chat_core.py       run_chat() 核心对话逻辑
-  local_vl_model.py  Report Agent — Qwen2.5-VL 本地加载+推理
-  react_parser.py    ReAct 文本 tool_call 解析器 (prompt 回退用)
-db/             SQLAlchemy ORM (12表)
-api/            FastAPI 薄路由层 (auth JWT, schemas, main, chat)
-services/       Gradio 适配层
-app.py          Gradio Web UI 主入口
-scripts/
-  launch_local_llm.py  Report Agent 服务启动 (FastAPI + transformers)
-  build_rag.py         RAG 向量库构建
-model_weights/  CV 模型权重 (5 个文件, gitignore)
-qwen2_5_vl_3b_building_merged/  微调模型权重 (gitignore, 需手动获取)
-chroma_db/      ChromaDB 向量库 (gitignore)
-history_mk/     历史过程文档
-openspec/       OpenSpec 规格 (10 cap specs)
-tests/          测试
+frontend/        Vue 3 前端 (Vite + Element Plus)
+backend/         Python 后端
+  agent/          Manager Agent (orchestrator, memory_manager, rag, skills/)
+  predictors/     CV模型预测器 (材质/楼层/加层/隐患)
+  llm/            LLM 客户端 + 6 个 Tool + Agent工厂 + Report Agent
+  db/             SQLAlchemy ORM (12表)
+  api/            FastAPI 薄路由层 (auth JWT, inspection, chat, main)
+  services/       Gradio 适配层
+  app.py          Gradio Web UI 主入口
+  scripts/
+    launch_local_llm.py  Report Agent 服务启动
+    build_rag.py         RAG 向量库构建
+  model_weights/  CV 模型权重 (5 个文件, gitignore)
+  tests/          测试
 ```
 
 ## 职责划分
@@ -190,9 +181,14 @@ Manager Agent 默认使用通义千问 API（`USE_LOCAL_LLM=false`），Report A
 
 ## 快速命令
 ```bash
+# 后端
+cd backend
 python scripts/launch_local_llm.py      # 启动本地 LLM 服务
 python app.py                           # Gradio Web UI
 uvicorn api.main:app --port 8000        # FastAPI
 python scripts/build_rag.py             # 构建 RAG 向量库
 python -m pytest tests/ -v              # 测试
+
+# 前端
+cd frontend && npm install && npm run dev  # Vue 开发服务器
 ```

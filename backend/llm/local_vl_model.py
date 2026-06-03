@@ -14,7 +14,7 @@ LOCAL_VL_MODEL_ENABLED = os.getenv("LOCAL_VL_MODEL_ENABLED", "false").lower() in
 }
 LOCAL_VL_MODEL_PATH = os.getenv(
     "LOCAL_VL_MODEL_PATH",
-    str(Path(__file__).parent.parent / "outputs" / "qwen2_5_vl_3b_building_merged"),
+    str(Path(__file__).parent.parent.parent / "outputs" / "qwen2_5_vl_3b_building_merged"),
 )
 LOCAL_VL_DEVICE_MAP = os.getenv("LOCAL_VL_DEVICE_MAP", "auto")
 LOCAL_VL_TORCH_DTYPE = os.getenv("LOCAL_VL_TORCH_DTYPE", "float16")

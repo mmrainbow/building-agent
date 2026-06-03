@@ -13,7 +13,7 @@ from llm.agent_factory import get_chat_agent
 
 from .constants import TEXT
 
-_CACHE_DIR = Path(__file__).parent.parent / "chat_images"
+_CACHE_DIR = Path(__file__).parent.parent.parent / "chat_images"
 
 # ── 图片存储（BLOB 入库 + 缓存文件渲染）───────────────
 

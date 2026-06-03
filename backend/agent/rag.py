@@ -23,7 +23,7 @@ EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", os.getenv("LLM_API_KEY", ""))
 EMBEDDING_BASE_URL = os.getenv(
     "EMBEDDING_BASE_URL",os.getenv("LLM_BASE_URL", " "),)
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-v3")
-CHROMA_DB_DIR = Path(__file__).parent.parent / "chroma_db"
+CHROMA_DB_DIR = Path(__file__).parent.parent.parent / "chroma_db"
 
 
 # ─── Embedding 实现 ───────────────────────────────────────────────
@@ -180,7 +180,7 @@ def load_vectorstore() -> Chroma | None:
             return None
 
     # 自动构建：从 rag_data/ 目录优先找 .docx，其次 .pdf
-    root = Path(__file__).parent.parent
+    root = Path(__file__).parent.parent.parent
     rag_dir = root / "rag_data"
     doc_files = list(rag_dir.glob("*.docx")) + list(rag_dir.glob("*.pdf"))
     if not doc_files:
