@@ -2,6 +2,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -13,6 +14,7 @@ from api.auth import (
     require_admin,
 )
 from api.chat import router as chat_router
+from api.inspection import router as inspection_router
 from api.schemas import (
     HealthResponse,
     LoginRequest,
@@ -40,7 +42,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Building Inspection API", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(chat_router)
+app.include_router(inspection_router)
 
 
 def _can_access_record(user: dict, record) -> bool:
@@ -253,3 +257,81 @@ def health():
         ollama=ollama_status,
         models=models_status,
     )
+
+
+# ── Agent 监控 ──────────────────────────────────────────────
+
+
+@app.get("/agent/status")
+def agent_status(user: dict = Depends(get_current_user)):
+    """Agent 监控: Manager / Memory / Report 三 Agent 状态。"""
+    import os
+    import requests as req
+
+    # Report Agent 状态
+    report_url = os.getenv("REPORT_AGENT_URL", "http://localhost:8000")
+    report_online = False
+    try:
+        r = req.get(f"{report_url}/health", timeout=3)
+        report_online = r.status_code == 200
+    except Exception:
+        pass
+
+    # Memory Agent 字符统计
+    from db import SessionLocal, get_recent_messages
+    from db.models import Conversation
+    db = SessionLocal()
+    try:
+        conv = db.query(Conversation).order_by(Conversation.updated_at.desc()).first()
+        if conv:
+            msgs = get_recent_messages(db, conv.id, limit=50)
+            total_chars = sum(len(getattr(m, "content", "") or "") for m in msgs)
+        else:
+            total_chars = 0
+    finally:
+        db.close()
+    threshold = int(os.getenv("MEMORY_EXTRACT_THRESHOLD", "6000"))
+
+    return {
+        "manager": {"status": "online", "model": os.getenv("LLM_MODEL", "qwen3.6-flash")},
+        "memory": {"total_chars": total_chars, "threshold": threshold, "pct": round(min(total_chars / threshold * 100, 100)) if threshold else 0},
+        "report": {"status": "online" if report_online else "offline", "url": report_url},
+    }
+
+
+# ── 历史导出 ────────────────────────────────────────────────
+
+
+@app.get("/history/{record_id}/export")
+def history_export(
+    record_id: int,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """导出巡检记录为 Excel 文件。"""
+    import io
+    import openpyxl
+    from fastapi.responses import StreamingResponse
+
+    record = get_record_detail(db, record_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+    if record.user_id != user["user_id"] and user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="No permission")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "巡检报告"
+    ws.append(["ID", record.id])
+    ws.append(["时间", record.created_at.isoformat() if record.created_at else ""])
+    ws.append(["报告", record.report or ""])
+    ws.append([])
+    ws.append(["图片", "材质", "楼层", "加层", "隐患数"])
+    for img in record.images or []:
+        ws.append([img.image_name, img.material, img.floor, img.has_extension, len(img.defects or [])])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                             headers={"Content-Disposition": f"attachment; filename=inspection_{record_id}.xlsx"})

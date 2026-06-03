@@ -19,3 +19,5 @@ ollama-test/
 chroma_db/
 rag_data/
 chat_images/
+frontend/node_modules/
+frontend/dist/

@@ -1,6 +1,10 @@
-"""Chat API — 薄层：请求解析 + 认证 + 调用 service + 返回响应。"""
+"""Chat API — 薄层：请求解析 + 认证 + 调用 service + 返回响应 (REST + SSE 流式)。"""
+
+import asyncio
+import json
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.auth import get_current_user
@@ -179,3 +183,93 @@ def delete_conversation_endpoint(
         delete_conversation(db, conv_id)
     finally:
         db.close()
+
+
+# ── SSE 流式问答 ───────────────────────────────────────────
+
+
+@router.post("/send/stream")
+async def chat_send_stream(
+    message: str = Query(..., description="用户输入文本"),
+    conversation_id: int | None = Query(None),
+    image: UploadFile | None = File(None),
+    user: dict = Depends(get_current_user),
+):
+    """SSE 流式问答 — 通过 asyncio.Queue 实现真正的实时 CoT 推送。"""
+
+    np_image = None
+    image_blob = None
+    if image is not None:
+        content = await image.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="上传的图片为空")
+        np_image = decode_image(content)
+        if np_image is None:
+            raise HTTPException(status_code=400, detail="无法解码图片")
+        image_blob = content
+
+    if conversation_id is not None:
+        from db import SessionLocal, get_conversation
+        db = SessionLocal()
+        try:
+            conv = get_conversation(db, conversation_id)
+            if conv is None:
+                raise HTTPException(status_code=404, detail="对话不存在")
+            if conv.user_id != user["user_id"]:
+                raise HTTPException(status_code=403, detail="无权访问此对话")
+        finally:
+            db.close()
+
+    event_queue: asyncio.Queue = asyncio.Queue()
+
+    def _on_step(event: dict):
+        """线程安全: put 协程不安全但 Queue.put_nowait 是线程安全的。"""
+        try:
+            event_queue.put_nowait(event)
+        except Exception:
+            pass
+
+    async def event_stream():
+        from db import SessionLocal
+        from llm.agent_factory import get_chat_agent
+        import concurrent.futures
+
+        db = SessionLocal()
+        try:
+            # 在独立线程中运行阻塞的 Agent，on_step 实时 push 事件
+            loop = asyncio.get_event_loop()
+            future = loop.run_in_executor(
+                None,
+                lambda: get_chat_agent().run(
+                    user_id=user["user_id"],
+                    conversation_id=conversation_id,
+                    message=message,
+                    db=db,
+                    image=np_image,
+                    image_blob=image_blob,
+                    on_step=_on_step,
+                )
+            )
+
+            # 持续读取事件直到 Agent 完成
+            while not future.done():
+                try:
+                    event = await asyncio.wait_for(event_queue.get(), timeout=0.1)
+                    yield f"data: {json.dumps({'type': 'step', 'data': event}, ensure_ascii=False)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ":keepalive\n\n"
+
+            result = future.result()
+            # 消费剩余事件
+            while not event_queue.empty():
+                event = event_queue.get_nowait()
+                yield f"data: {json.dumps({'type': 'step', 'data': event}, ensure_ascii=False)}\n\n"
+
+            response_text = (result.get("response") or "").strip()
+            yield f"data: {json.dumps({'type': 'done', 'response': response_text, 'conversation_id': conversation_id, 'tool_log': result.get('tool_log', [])}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+        finally:
+            db.close()
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
