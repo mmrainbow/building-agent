@@ -140,24 +140,32 @@ GET  /health               数据库 + Ollama + 模型文件状态
 |------|------|------|
 | 入口 | Gradio "图像巡检" Tab | Gradio "智能问答" Tab |
 | 调度 | InspectionSkill (多图→批量CV→LLM报告) | ReAct Agent (LLM 自主选 Tool) |
-| LLM 后端 | 本地 vLLM (微调模型) | 本地 vLLM (微调模型) |
+| LLM 后端 | Report Agent (本地 Qwen2.5-VL) | Manager (通义千问 API) + Report Agent |
 | Tool 调用 | 固定全跑 4 个 CV | LLM 自主选择 |
 | 记忆 | — | MemoryManager |
 | 持久化 | InspectionRecord + ImageInspection + Defect | ChatMessage + ChatImage |
 
 ## 启动方式
 
+### 后端
 ```bash
+cd backend
 # 终端 1: 启动 Report Agent (本地微调模型)
 conda activate building-agent
 python scripts/launch_local_llm.py
 
-# 终端 2: 启动应用 (Manager + Gradio)
+# 终端 2: FastAPI (或 Gradio)
 conda activate building-agent
-python app.py
+uvicorn api.main:app --port 8000   # REST API
+# python app.py                     # Gradio Web UI (可选)
 ```
 
-Manager Agent 默认使用通义千问 API（`USE_LOCAL_LLM=false`），Report Agent 在 `localhost:8000` 提供报告生成服务。
+### 前端 (Vue 3)
+```bash
+cd frontend
+npm install
+npm run dev     # http://localhost:5173 (代理 /api → :8000)
+```
 
 ## 禁止事项
 - 不要删除 `model_weights/` 下的 `.pt`/`.pth` 模型权重文件
@@ -176,8 +184,8 @@ Manager Agent 默认使用通义千问 API（`USE_LOCAL_LLM=false`），Report A
 - `README.md`                       快速启动指南
 
 ## 当前开发阶段
-阶段 1 完成 — Agent + RAG + 对话 + Memory + 多图巡检 + 本地微调模型 (vLLM 服务化)。
-下一步：阶段 2 反馈系统。
+阶段 2 完成 — 多 Agent 协同 (Manager + Memory + Report) + 前后端分离 (Vue 3 + FastAPI)。
+下一步：阶段 3 反馈系统。
 
 ## 快速命令
 ```bash

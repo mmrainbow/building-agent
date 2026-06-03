@@ -12,10 +12,10 @@
 | 阶段0.5: 数据模型架构补强 | **已完成** | 2026-05-26 |
 | 阶段1: Agent 框架 + RAG + 对话系统 | **已完成** | 2026-06-01 |
 | 阶段1.5: 本地 LLM 服务化 + 架构精简 | **已完成** | 2026-06-02 |
-| 阶段2: 多 Agent 协同 | **进行中** | — |
+| 阶段2: 多 Agent 协同 | **已完成** | 2026-06-03 |
+| 阶段2.5: 前后端分离 (Vue 3 + FastAPI) | **已完成** | 2026-06-03 |
 | 阶段3: 反馈系统 | 待开始 | — |
 | 阶段4: 服务化部署 (Docker/CICD) | 待开始 | — |
-| 阶段5: 前后端分离 (可选) | 待开始 | — |
 
 ---
 
@@ -448,7 +448,7 @@ POST   /api/chat/rag               # 基于知识库的问答 (已有 /api/chat�
 - [x] **删除废弃路径** — 移除 `main.py`, `agent/graph.py`, `agent/nodes.py`, `agent/state.py`, `services/inspection_service.py`, `tests/test_predict.py`
 - [x] **Windows 兼容** — vLLM 不支持 Windows，改用 FastAPI + transformers 自建服务
 
-### 阶段2: 多 Agent 协同 (进行中)
+### 阶段2: 多 Agent 协同 ✅ 已完成 2026-06-03
 
 **目标**: Manager Agent (通义千问) + Report Agent (本地微调模型) 各司其职。
 
@@ -475,6 +475,22 @@ POST   /api/chat/rag               # 基于知识库的问答 (已有 /api/chat�
 - [ ] **Report Agent 多路召回** — 同时生成多份报告供对比选择
 
 > **架构决策**: Manager 使用通义千问 API 因原生支持 function calling；Report Agent 使用本地模型因微调训练的目标就是报告生成。两者通过 HTTP 通信，可独立扩展。
+
+### 阶段2.5: 前后端分离 (Vue 3 + FastAPI) ✅ 已完成 2026-06-03
+
+**目标**: Gradio UI 替换为 Vue 3 单页应用，FastAPI 作为纯后端 API。
+
+- [x] **补充 API 端点** — `POST /inspection/multi`、`GET /history/{id}/export`、`GET /agent/status`、`POST /chat/send/stream` (SSE 流式 CoT)
+- [x] **Vue 3 脚手架** — Vite + Element Plus + Axios + Pinia + Vue Router
+- [x] **智能问答页面** — SSE 流式 CoT 可视化、对话列表管理、图片上传
+- [x] **图像巡检页面** — 多图上传 Gallery、标注图展示、报告渲染
+- [x] **历史记录页面** — 表格 + 详情 + Excel 导出
+- [x] **Agent 监控页面** — 三 Agent 状态卡片 + Token 圆环
+- [x] **项目重构** — 后端文件移入 `backend/`，前端独立 `frontend/`
+- [x] **Defect 表重构** — 移除 `image_id`，直连 `chat_images`
+- [x] **图文并茂报告** — 标注缺陷框 + Gallery 展示 + `<img>` 嵌入
+
+**技术栈**: Vue 3 + Vite + Element Plus + Pinia, FastAPI + SSE + CORS
 
 ### 阶段3: 反馈系统 (1周, 1人)
 
@@ -540,7 +556,7 @@ Gradio, SQLAlchemy, Ollama (qwen2:1.5b), YOLO, PyTorch。
 - 环境变量命名: UPPER_SNAKE_CASE
 
 ## 当前阶段
-阶段2 进行中 — 多 Agent 协同基础架构已搭建 (Manager + Report)，Agent 注册中心/通信协议/ReviewAgent 待实现。下一步: 阶段3 反馈系统。
+阶段2 完成 — 多Agent协同 (Manager+Memory+Report)+ 前后端分离 (Vue 3 + FastAPI)。下一步: 阶段3 反馈系统。
 
 ## 禁止事项
 - 不要删除或修改 model_weights/ 下的模型权重文件
@@ -764,7 +780,7 @@ black>=24.0.0
 ### C. 系统架构演进图
 
 ```
-当前 (阶段2 进行中)                       目标 (阶段4完成后)
+当前 (阶段2.5 完成)                       目标 (阶段4完成后)
 
 ┌──────────────────┐                   ┌──────────┐  ┌──────────┐
 │    Gradio UI     │                   │  Gradio  │  │  React   │
