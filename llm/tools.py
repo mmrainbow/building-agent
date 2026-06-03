@@ -107,25 +107,35 @@ class CVToolWrapper:
         return str(value)
 
 
+# 缓存最近一次 defect 检测的原始结果，供 generate_report 画框用
+_last_defects_raw: list[dict] | None = None
+
+
 class DefectToolWrapper(CVToolWrapper):
     """隐患检测专用 — 输出中文类型名和面积，同步入库到 Defect 表。"""
 
     def execute(self, image=None, db=None, chat_image_id=None, **kwargs) -> str:
+        global _last_defects_raw
         result = super().execute(image=image)
-        # 入库: 对话中检测到的隐患直接关联 chat_image
-        if db and chat_image_id and image is not None:
+        # 缓存原始检测结果（含 box_coords），供 generate_report 画框
+        if image is not None:
             try:
                 raw = self._predictor.predict([image])
-                if raw and raw[0]:
-                    from db.models import Defect
-                    for d in raw[0]:
-                        db.add(Defect(
-                            chat_image_id=chat_image_id,
-                            defect_type=str(d.get("type", "")),
-                            area=float(d.get("area", 0) or 0),
-                            box_coords=d.get("box", []),
-                        ))
-                    db.commit()
+                _last_defects_raw = raw[0] if raw else None
+            except Exception:
+                _last_defects_raw = None
+        # 入库: 对话中检测到的隐患直接关联 chat_image
+        if db and chat_image_id and image is not None and _last_defects_raw:
+            try:
+                from db.models import Defect
+                for d in _last_defects_raw:
+                    db.add(Defect(
+                        chat_image_id=chat_image_id,
+                        defect_type=str(d.get("type", "")),
+                        area=float(d.get("area", 0) or 0),
+                        box_coords=d.get("box", []),
+                    ))
+                db.commit()
             except Exception as e:
                 print(f"[DefectTool] 入库失败: {e}")
         return result
@@ -242,18 +252,36 @@ class ReportAgentTool:
             return "错误：需要图片才能生成报告。请先确保用户已上传图片。"
 
         import base64
-        import tempfile
 
-        # 编码图片为 base64
-        _, buf = __import__("cv2").imencode(".jpg", image)
-        image_b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
+        global _last_defects_raw
+
+        # 如果有缓存的缺陷检测结果，画框到图片上
+        if _last_defects_raw:
+            rendered = image.copy()
+            for d in _last_defects_raw:
+                box = d.get("box", [])
+                if len(box) == 4:
+                    pts = __import__("numpy").array(box, dtype=__import__("numpy").int32).reshape((-1, 1, 2))
+                    __import__("cv2").polylines(rendered, [pts], isClosed=True, color=(255, 0, 0), thickness=3)
+                    label = str(d.get("id", "?"))
+                    x, y = pts[0][0]
+                    __import__("cv2").putText(rendered, label, (x, y - 8), __import__("cv2").FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+            # 编码标注后的图片
+            _, buf = __import__("cv2").imencode(".jpg", rendered)
+            image_b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
+            defects_payload = _last_defects_raw
+            _last_defects_raw = None  # 用完清掉
+        else:
+            _, buf = __import__("cv2").imencode(".jpg", image)
+            image_b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
+            defects_payload = []
 
         payload = {
             "image_base64": image_b64,
             "material": material or "Unknown",
             "floor": floor or "Unknown",
             "has_extension": has_extension or "Unknown",
-            "defects": [],  # defects_summary 是文本摘要，不是原始缺陷列表
+            "defects": defects_payload,
         }
 
         try:
@@ -265,7 +293,9 @@ class ReportAgentTool:
             if resp.status_code == 200:
                 data = resp.json()
                 elapsed = data.get("elapsed_seconds", 0)
-                return f"📋 **专业巡检报告** (生成耗时 {elapsed:.1f}s):\n\n{data['report']}"
+                # 带有标注框的图片以 data URI 嵌入，Chatbot 可直接渲染
+                img_tag = f'<img src="data:image/jpeg;base64,{image_b64}" style="max-width:400px;border:1px solid #ddd;margin:8px 0">'
+                return f"{img_tag}\n\n📋 **专业巡检报告** (生成耗时 {elapsed:.1f}s):\n\n{data['report']}"
             return f"Report Agent 调用失败: HTTP {resp.status_code}"
         except Exception as e:
             return f"Report Agent 不可达 ({self.url}): {e}"

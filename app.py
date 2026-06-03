@@ -10,7 +10,7 @@ import gradio as gr
 from services import (
     TEXT,
     bootstrap_data,
-    chat_with_llm,
+    chat_with_llm_stream,
     delete_user_conversation,
     list_user_conversations,
     load_conversation_messages,
@@ -24,6 +24,33 @@ from services import (
 )
 
 bootstrap_data()
+
+
+# ── Agent 监控面板工具函数 ────────────────────────────────
+
+def _token_ring_html(current: int, threshold: int) -> str:
+    pct = min(round(current / threshold * 100) if threshold > 0 else 0, 100)
+    color = "#22c55e" if pct < 50 else ("#f59e0b" if pct < 80 else "#ef4444")
+    return f"""
+    <div style="text-align:center">
+    <svg width="100" height="100" viewBox="0 0 36 36">
+      <circle cx="18" cy="18" r="15.5" fill="none" stroke="#333" stroke-width="3"/>
+      <circle cx="18" cy="18" r="15.5" fill="none" stroke="{color}" stroke-width="3"
+        stroke-dasharray="{pct} {100-pct}" stroke-dashoffset="25" stroke-linecap="round"
+        transform="rotate(-90 18 18)"/>
+      <text x="18" y="16" text-anchor="middle" fill="white" font-size="7" font-weight="bold">{pct}%</text>
+      <text x="18" y="23" text-anchor="middle" fill="#888" font-size="4">{current}/{threshold}</text>
+    </svg></div>"""
+
+
+def _agent_status_html(name: str, model: str, status: str, color: str) -> str:
+    return f"""
+    <div style="background:#1e1e1e;border:1px solid #333;border-radius:8px;padding:12px;text-align:center">
+      <div style="display:inline-block;width:10px;height:10px;border-radius:50%;background:{color};margin-right:6px"></div>
+      <span style="font-weight:bold;color:white">{name}</span>
+      <div style="color:#888;font-size:12px">{model}</div>
+      <div style="margin-top:4px;font-size:13px;color:{color}">{status}</div>
+    </div>"""
 
 
 # ── UI 适配层（services 返回纯数据，此处转 gr.update）─────────
@@ -40,16 +67,21 @@ def _logout_wrapper():
 
 # ── 智能问答回调 ───────────────────────────────────────────
 
-def respond(message, chat_history, chat_image, sess):
+def respond_stream(message, chat_history, chat_image, sess):
+    """流式响应 — 实时展示 Manager Agent 的思考过程。"""
     if not message.strip():
-        return "", chat_history, chat_image, sess
-    # 如果上传了图片，将图片存入 session 供后续对话使用
+        yield "", chat_history, chat_image, sess
+        return
     if chat_image is not None:
         sess["last_image"] = chat_image
-    bot_message = chat_with_llm(message, chat_history, sess, image=chat_image)
     chat_history.append({"role": "user", "content": message})
-    chat_history.append({"role": "assistant", "content": bot_message})
-    return "", chat_history, None, sess
+    # 先显示"思考中"占位
+    chat_history.append({"role": "assistant", "content": "🧠 **Manager Agent 思考中...**"})
+    yield "", chat_history, None, sess
+    # 调用 Agent（阻塞），但返回的已包含 CoT HTML
+    bot_message = chat_with_llm_stream(message, chat_history, sess, image=chat_image)
+    chat_history[-1] = {"role": "assistant", "content": bot_message}
+    yield "", chat_history, None, sess
 
 
 with gr.Blocks(title=TEXT["title"]) as demo:
@@ -88,7 +120,7 @@ with gr.Blocks(title=TEXT["title"]) as demo:
 
                     with gr.Column(scale=2):
                         gallery = gr.Gallery(label="已收集的图片", columns=3, height=300)
-                        report_output = gr.Textbox(label="巡检报告", lines=20)
+                        report_output = gr.HTML(label="巡检报告")
 
                 images_state = gr.State(value=[])
 
@@ -113,6 +145,7 @@ with gr.Blocks(title=TEXT["title"]) as demo:
                     if len(imgs) < 3:
                         return f"至少需要 3 张图片，当前只有 {len(imgs)} 张。", imgs, gr.update(visible=False)
                     from agent.skills.inspection_skill import InspectionSkill
+                    import base64
                     skill = InspectionSkill()
                     skill._ensure_predictors()
                     from db import SessionLocal, InspectionRecord
@@ -125,8 +158,15 @@ with gr.Blocks(title=TEXT["title"]) as demo:
                             skill._add_image(db, record, img)
                         skill._run_inspection_on_all(db, record)
                         report = record.report or "报告生成失败。"
+                        # 标注图片嵌入报告
                         anno_paths = getattr(record, "_annotated_paths", [])
-                        return report, [], gr.update(value=anno_paths, visible=True) if anno_paths else gr.update(visible=False)
+                        img_tags = ""
+                        for i, p in enumerate(anno_paths):
+                            with open(p, "rb") as f:
+                                b64 = base64.b64encode(f.read()).decode()
+                            img_tags += f'<img src="data:image/jpeg;base64,{b64}" style="max-width:400px;border:1px solid #ddd;margin:4px"><br><small>图{i+1} 缺陷标注</small><br>'
+                        report_html = f"{img_tags}<hr><pre style='white-space:pre-wrap;font-family:sans-serif;font-size:14px'>{report}</pre>"
+                        return report_html, [], gr.update(value=anno_paths, visible=True) if anno_paths else gr.update(visible=False)
                     finally:
                         db.close()
 
@@ -260,20 +300,14 @@ with gr.Blocks(title=TEXT["title"]) as demo:
                     queue=False,
                 )
 
-                # ── 发送消息 ──
+                # ── 发送消息（流式 CoT）──
                 def _handle_send(message, history, img, conv_id, sess):
                     if not message.strip():
-                        return "", history, img, conv_id, sess
-                    reply, history_out, _, sess = respond(message, history, img, sess)
-                    # 刷新对话列表（标题可能更新）
-                    choices = list_user_conversations(sess)
-                    return (
-                        reply,
-                        history_out,
-                        None,
-                        gr.update(choices=choices, value=sess.get("conversation_id")),
-                        sess,
-                    )
+                        yield "", history, img, conv_id, sess
+                        return
+                    # 流式输出中间状态
+                    for msg_out, hist_out, _, sess_out in respond_stream(message, history, img, sess):
+                        yield msg_out, hist_out, None, gr.update(choices=list_user_conversations(sess_out), value=sess_out.get("conversation_id")), sess_out
 
                 send_btn.click(
                     _handle_send,
@@ -285,6 +319,63 @@ with gr.Blocks(title=TEXT["title"]) as demo:
                     [msg, chatbot, chat_image, conv_list, session_state],
                     [msg, chatbot, chat_image, conv_list, session_state],
                 )
+
+            with gr.TabItem("Agent 监控"):
+                _refresh_agent_btn = gr.Button("刷新状态")
+
+                with gr.Row():
+                    # Manager Agent 卡片
+                    with gr.Column(scale=1):
+                        gr.Markdown("### 🧠 Manager Agent")
+                        manager_status = gr.HTML(_agent_status_html("manager", "通义千问 qwen3.6-flash", "在线", "#22c55e"))
+                    # Memory Agent 卡片
+                    with gr.Column(scale=1):
+                        gr.Markdown("### 💾 Memory Agent")
+                        memory_status = gr.HTML(_agent_status_html("memory", "qwen-turbo", "待命中", "#f59e0b"))
+                    # Report Agent 卡片
+                    with gr.Column(scale=1):
+                        gr.Markdown("### 📋 Report Agent")
+                        report_status = gr.HTML(_agent_status_html("report", "本地 Qwen2.5-VL", "检测中...", "#94a3b8"))
+
+                gr.Markdown("---")
+                token_ring = gr.HTML(_token_ring_html(0, 6000))
+                gr.Markdown("<small style='color:#888'>上下文用量: 显示所有活跃对话的累积上下文字符数</small>")
+                agent_log = gr.Textbox(label="Agent 日志", lines=5, interactive=False)
+
+                def _refresh_agent_monitor():
+                    import os, requests
+                    # Report Agent 状态
+                    report_url = os.getenv("REPORT_AGENT_URL", "http://localhost:8000")
+                    try:
+                        r = requests.get(f"{report_url}/health", timeout=3)
+                        report_ok = r.status_code == 200
+                    except Exception:
+                        report_ok = False
+
+                    # Token 统计 (从 DB 取最近对话)
+                    from db import SessionLocal, get_recent_messages
+                    from db.models import Conversation
+                    db = SessionLocal()
+                    try:
+                        conv = db.query(Conversation).order_by(Conversation.updated_at.desc()).first()
+                        if conv:
+                            msgs = get_recent_messages(db, conv.id, limit=50)
+                            total = sum(len(getattr(m, "content", "") or "") for m in msgs)
+                        else:
+                            total = 0
+                    finally:
+                        db.close()
+                    threshold = int(os.getenv("MEMORY_EXTRACT_THRESHOLD", "6000"))
+
+                    return (
+                        _agent_status_html("manager", "通义千问 qwen3.6-flash", "在线", "#22c55e"),
+                        _agent_status_html("memory", "qwen-turbo", f"{total}/{threshold} 字符" if total > 0 else "待命中", "#f59e0b"),
+                        _agent_status_html("report", "本地 Qwen2.5-VL", "在线" if report_ok else "离线", "#22c55e" if report_ok else "#ef4444"),
+                        _token_ring_html(total, threshold),
+                        f"[Agent Monitor] Manager 在线 | Memory {total}chars | Report {'在线' if report_ok else '离线'}",
+                    )
+
+                _refresh_agent_btn.click(_refresh_agent_monitor, None, [manager_status, memory_status, report_status, token_ring, agent_log])
 
     # 认证操作不走队列，避免被「开始巡检」等耗时任务堵住导致登录一直 heartbeat
     login_btn.click(

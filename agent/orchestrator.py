@@ -15,6 +15,7 @@ Report Agent:            本地 Qwen2.5-VL       — generate_report 工具调�
 """
 
 import json
+import os
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -82,14 +83,26 @@ def _make_user_message(text: str, has_image: bool = False) -> dict:
 def _history_to_messages(records: list) -> list[dict]:
     """将 ChatMessage ORM 对象列表转为 LLM 消息格式。
 
-    tool 消息保留原 role，LLM 能区分"用户说了什么"和"工具返回了什么"，
-    避免 LLM 在后续轮次重复调用已执行过的工具。
+    有图片的用户消息自动标注 [图片 N/M]，LLM 可以引用"图1""图2"等。
+    tool 消息保留原 role，避免 LLM 重复调用已执行过的工具。
     """
+    # 预先统计所有带图片的用户消息，计算序号
+    img_indices: dict[int, int] = {}
+    counter = 0
+    for r in records:
+        if r.role == "user" and (r.metadata_ or {}).get("has_image"):
+            counter += 1
+            img_indices[r.id] = counter
+
     msgs = []
     for r in records:
         content = r.content or ""
         if len(content) > 2000:
             content = content[:2000] + "..."
+        idx = img_indices.get(r.id)
+        if idx is not None:
+            img_id = (r.metadata_ or {}).get("chat_image_id", "?")
+            content = f"[图片 #{img_id} ({idx}/{counter})] {content}"
         msgs.append({"role": r.role, "content": content})
     return msgs
 
@@ -143,6 +156,7 @@ class ManagerAgent:
         image_blob: bytes | None = None,
         recent_messages: list | None = None,
         memories: list | None = None,
+        on_step: callable | None = None,
     ) -> dict:
         """执行一次完整的 Agent 对话轮次。
 
@@ -190,16 +204,26 @@ class ManagerAgent:
         messages.append(_make_user_message(message, has_image=image is not None))
 
         # 预创建 ChatImage，tool 执行时可直接关联缺陷
-        _chat_image_id = None
+        _chat_image_id: int | None = None
+        _user_msg_id: int | None = None
         if image_blob:
             from db.models import ChatMessage as CM, ChatImage as CI
-            _pre_msg = CM(conversation_id=conversation_id, role="user", content=f"[图片] {message[:50]}")
-            db.add(_pre_msg)
+            _user_msg = CM(
+                conversation_id=conversation_id,
+                role="user",
+                content=message,
+                metadata_={"has_image": True},
+            )
+            db.add(_user_msg)
             db.flush()
-            _pre_img = CI(message_id=_pre_msg.id, data=image_blob)
+            _user_msg_id = _user_msg.id
+            _pre_img = CI(message_id=_user_msg.id, data=image_blob)
             db.add(_pre_img)
             db.flush()
             _chat_image_id = _pre_img.id
+            # 将 chat_image_id 写回消息 metadata，供跨轮次恢复
+            _user_msg.metadata_["chat_image_id"] = _chat_image_id
+            db.flush()
 
         # 3. ReAct 循环
         tool_log = []
@@ -212,6 +236,9 @@ class ManagerAgent:
             # 累加 token 用量
             for k in total_usage:
                 total_usage[k] += resp.get("usage", {}).get(k, 0)
+
+            if on_step:
+                on_step({"type": "think", "round": round_idx + 1, "content": resp.get("content") or "分析中..."})
 
             if resp["tool_calls"]:
                 # LLM 决定调用工具 → 执行并反馈结果
@@ -230,11 +257,15 @@ class ManagerAgent:
                         fn_args = {}
 
                     t_start = time.perf_counter()
+                    if on_step:
+                        on_step({"type": "tool", "name": fn_name, "status": "running"})
                     result = execute_tool(
                         self.tools, fn_name, image=image, db=db,
                         chat_image_id=_chat_image_id, user_id=str(user_id), **fn_args
                     )
                     elapsed_ms = round((time.perf_counter() - t_start) * 1000)
+                    if on_step:
+                        on_step({"type": "tool", "name": fn_name, "status": "done", "elapsed_ms": elapsed_ms})
 
                     tool_log.append({
                         "name": fn_name,
@@ -251,6 +282,8 @@ class ManagerAgent:
             else:
                 # LLM 生成最终文本回复
                 final_text = resp.get("content") or ""
+                if on_step:
+                    on_step({"type": "done", "rounds": len(tool_log)})
                 break
         else:
             # 达到最大循环次数 → 强制 LLM 生成总结
@@ -262,8 +295,9 @@ class ManagerAgent:
             final_text = final_resp.get("content") or "无法生成报告。"
 
         # 4. 持久化短期记忆，并提炼长期记忆
-        # 已预创建 ChatImage，不再重复保存
-        self._save_turn(db, conversation_id, message, final_text, tool_log, None)
+        self._save_turn(db, conversation_id, message, final_text, tool_log,
+                        image_blob=None if _user_msg_id else image_blob,
+                        user_msg_id=_user_msg_id)
         self._extract_memory(db, user_id, conversation_id)
 
         return {
@@ -283,11 +317,17 @@ class ManagerAgent:
         assistant_msg: str,
         tool_log: list[dict],
         user_image_blob: bytes | None = None,
+        user_msg_id: int | None = None,
     ) -> None:
-        """保存本轮对话到 ChatMessage 表。"""
+        """保存本轮对话到 ChatMessage 表。user_msg_id 非空时跳过用户消息创建。"""
         from db.chat_crud import add_message
 
-        add_message(db, conversation_id, "user", user_msg, image_blob=user_image_blob)
+        if user_msg_id:
+            # 用户消息+图片已预创建，仅更新 conversation 元数据
+            from db.chat_crud import update_conversation_title
+            update_conversation_title(db, conversation_id)
+        else:
+            add_message(db, conversation_id, "user", user_msg, image_blob=user_image_blob)
         if assistant_msg:
             meta = {"tool_calls": tool_log} if tool_log else None
             add_message(
@@ -299,11 +339,21 @@ class ManagerAgent:
             )
 
     def _extract_memory(self, db: Any, user_id: int, conversation_id: int) -> None:
-        """ReAct 落库后，用 Memory Agent (独立廉价模型) 提炼长期记忆。"""
+        """上下文 Token 管理 — 仅在接近窗口上限时触发 Memory Agent 压缩提取。"""
         from db.chat_crud import get_recent_messages
         from llm.memory_agent import get_memory_agent
 
-        recent = get_recent_messages(db, conversation_id, limit=20)
+        recent = get_recent_messages(db, conversation_id, limit=50)
+        if len(recent) < 3:
+            return
+
+        # 估算当前上下文大小 (1 中文字符 ≈ 1.5 tokens)
+        total_chars = sum(len(getattr(m, "content", "") or "") for m in recent)
+        threshold = int(os.getenv("MEMORY_EXTRACT_THRESHOLD", "6000"))
+
+        if total_chars < threshold:
+            return  # 未达阈值，跳过提取
+
         memory_llm = get_memory_agent()
         self.memory_manager.extract_and_save_memory(
             db, user_id, conversation_id, memory_llm, recent

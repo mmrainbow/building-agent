@@ -3,6 +3,7 @@ from .auth_service import bootstrap_data, handle_login, handle_register, do_logo
 from .history_service import load_history, show_record_detail, export_history_to_excel
 from .chat_service import (
     chat_with_llm,
+    chat_with_llm_stream,
     delete_user_conversation,
     list_user_conversations,
     load_conversation_messages,
