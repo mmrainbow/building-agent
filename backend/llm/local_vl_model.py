@@ -107,12 +107,19 @@ class LocalVLModelClient:
             max_pixels=self.max_pixels,
             trust_remote_code=True,
         )
-        self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            self.model_path,
-            torch_dtype=self.torch_dtype,
-            device_map=self.device_map,
-            trust_remote_code=True,
-        )
+        try:
+            self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                self.model_path,
+                dtype=self.torch_dtype,
+                device_map=self.device_map,
+                trust_remote_code=True,
+            )
+        except Exception:
+            self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                self.model_path,
+                dtype=self.torch_dtype,
+                trust_remote_code=True,
+            ).to("cuda")
         self.model.eval()
 
     def generate(
