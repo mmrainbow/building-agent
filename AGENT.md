@@ -9,7 +9,7 @@ AI 驱动的建筑外立面巡检系统 — 三 Agent 协同架构。
 | **Memory Agent** | 通义千问 qwen-turbo | 自动从对话中提取长期记忆 |
 | **Report Agent** | 本地微调 Qwen2.5-VL | 生成专业中文巡检报告 |
 
-技术栈: Python 3.10+, FastAPI, Gradio 6, SQLAlchemy 2, transformers, YOLO (ultralytics), PyTorch, OpenCV, ChromaDB
+技术栈: Python 3.10+, FastAPI, Vue 3, SQLAlchemy 2, transformers, YOLO (ultralytics), PyTorch, OpenCV, ChromaDB
 
 ## 多 Agent 架构
 
@@ -28,29 +28,54 @@ AI 驱动的建筑外立面巡检系统 — 三 Agent 协同架构。
 
 ## 项目结构
 ```
-frontend/        Vue 3 前端 (Vite + Element Plus)
-backend/         Python 后端
-  agent/          Manager Agent (orchestrator, memory_manager, rag, skills/)
-  predictors/     CV模型预测器 (材质/楼层/加层/隐患)
-  llm/            LLM 客户端 + 6 个 Tool + Agent工厂 + Report Agent
-  db/             SQLAlchemy ORM (12表)
-  api/            FastAPI 薄路由层 (auth JWT, inspection, chat, main)
-  services/       Gradio 适配层
-  app.py          Gradio Web UI 主入口
+frontend/               Vue 3 前端 (Vite + Element Plus + Pinia)
+backend/                Python 后端
+  agent/                 Manager Agent
+    orchestrator.py       ReAct 循环 + 持久化
+    context.py            System Prompt + 消息构建
+    memory_manager.py     双层记忆管理
+    rag.py                ChromaDB RAG 检索
+    skills/               InspectionSkill (多图巡检工作流)
+  predictors/            CV模型预测器 (材质/楼层/加层/隐患)
+  llm/                   LLM 核心
+    client.py             LLMClient (OpenAI 兼容, native+prompt 双模式)
+    tools/                6 个 Tool (已拆分为包: schemas/base/knowledge/report)
+    agent_factory.py      Manager Agent 单例
+    chat_core.py          对话核心逻辑
+    local_vl_model.py     Report Agent 模型加载与推理
+    memory_agent.py       Memory Agent 独立客户端
+    react_parser.py       ReAct 文本解析器 (prompt 回退模式)
+  db/                    SQLAlchemy ORM
+    models.py             12 表定义
+    crud_user.py          用户 CRUD (注册/认证/查询)
+    crud_inspection.py    巡检记录 CRUD
+    chat_crud.py          对话与消息 CRUD
+    memory_crud.py        长期记忆 CRUD
+    feedback_crud.py      反馈 CRUD
+  api/                   FastAPI 路由
+    main.py               App 入口 (lifespan + CORS + 路由注册)
+    auth.py               JWT 工具 (签发/验证/角色守卫)
+    chat.py               Chat API (REST + SSE 流式)
+    inspection.py         Inspection API (多图巡检)
+    schemas.py            Pydantic 请求/响应模型
+    routes/               按业务域拆分的路由模块
+      auth_routes.py       /register, /token, /login, /token/refresh
+      history_routes.py    /history, /history/{id}, /history/{id}/export
+      admin_routes.py      /admin/users
+      health_routes.py     /health, /agent/status
   scripts/
     launch_local_llm.py  Report Agent 服务启动
     build_rag.py         RAG 向量库构建
-  model_weights/  CV 模型权重 (5 个文件, gitignore)
-  tests/          测试
+  model_weights/         CV 模型权重 (5 个文件, gitignore)
+  tests/                 测试 (12 个文件)
 ```
 
 ## 职责划分
 ```
 api/       → 薄层: 参数校验 + 认证 + 调用 service → 格式化响应
-services/  → Gradio 适配: session 状态管理 + 上下文拼接 + UI 回调
 llm/       → 核心逻辑: LLM客户端 + Tool + Agent工厂 + 对话核心 + 本地VL
-agent/     → Agent 编排: ReAct循环 + 双层记忆 + RAG 检索
-db/        → 数据访问: SQLAlchemy ORM + CRUD
+agent/     → Agent 编排: ReAct循环 + 上下文构建 + 双层记忆 + RAG 检索
+db/        → 数据访问: SQLAlchemy ORM + 按域拆分的 CRUD 模块
 ```
 
 ## 开发约定
@@ -62,8 +87,8 @@ db/        → 数据访问: SQLAlchemy ORM + CRUD
 - 可切回远程通义千问 API: `USE_LOCAL_LLM=false`
 - Embedding 调用默认复用 LLM_API_KEY，也可单独配置 EMBEDDING_API_KEY
 - 环境变量命名: `UPPER_SNAKE_CASE`
-- api/ 不写业务逻辑，调 llm/ 或 services/
-- services 不依赖 FastAPI / Gradio 组件（auth_service 返回纯数据，UI 包装在 app.py）
+- api/ 不写业务逻辑，调 llm/ 或 agent/
+- routes/ 模块各自独立 APIRouter，main.py 仅负责注册
 
 ## 关键环境变量
 ```
@@ -81,19 +106,20 @@ LOCAL_VL_DEVICE_MAP       模型加载设备 (默认 auto)
 LOCAL_VL_TORCH_DTYPE      推理精度 (默认 float16)
 INSPECTION_DB_URL         数据库连接 (默认 sqlite:///./inspection.db)
 JWT_SECRET_KEY            JWT 签名密钥
-INIT_ADMIN_USERNAME       初始管理员用户名
-INIT_ADMIN_PASSWORD       初始管理员密码
+MEMORY_EXTRACT_THRESHOLD  记忆提取触发字符数阈值 (默认 6000)
+INIT_USERNAME             初始用户名 (默认 user123)
+INIT_PASSWORD             初始密码 (默认 user123)
 ```
 
 ## 当前数据模型 (12 张表)
 - **User**: id, username, password_hash, role, is_active, created_at, last_login_at
 - **UserPreference**: id, user_id(FK,unique), language, report_style, preferred_model
 - **InspectionRecord**: id, user_id(FK), status, report, created_at → images(ImageInspection)
-- **ImageInspection**: id, record_id(FK), chat_image_id(FK→chat_images), image_name, material, floor, has_extension → defects
-- **Defect**: id, image_id(FK→image_inspection), defect_type, area, box_coords(JSON)
+- **ImageInspection**: id, record_id(FK), chat_image_id(FK→chat_images), image_name, material, floor, has_extension → defects(通过 chat_image)
+- **Defect**: id, chat_image_id(FK→chat_images), defect_type, area, box_coords(JSON)
 - **Conversation**: id, user_id(FK), title, model, message_count, created_at, updated_at → messages(ChatMessage)
 - **ChatMessage**: id, conversation_id(FK), role, content, metadata(JSON), created_at → images(ChatImage)
-- **ChatImage**: id, message_id(FK), mime_type, data(BLOB)
+- **ChatImage**: id, message_id(FK), mime_type, data(BLOB) → defects
 - **ConversationMemory**: id, user_id(FK), conversation_id(FK), memory_type, key, content, chroma_id, importance, access_count
 - **Feedback**: id, user_id(FK), record_id(FK), message_id(FK), feedback_type, target_field, original_value, corrected_value, rating, comment
 - **KnowledgeDocument**: id, title, file_name, file_type, source_type, chunk_count, status → chunks
@@ -111,17 +137,20 @@ POST /token/refresh        刷新 token
 
 ### 巡检（需 JWT）
 ```
+POST /inspection/multi     多图巡检 (≥3张, 返回报告+标注图)
 GET  /history              巡检列表 (分页)
 GET  /history/{id}         单条详情
-GET  /statistics           统计汇总
+GET  /history/{id}/export  导出 Excel
 ```
 
 ### 对话（需 JWT）
 ```
-POST /chat/send            发送消息 (文本+可选图片) → AI 自主 Tool
+POST /chat/send            发送消息 (文本+图片) → AI 自主 Tool
+POST /chat/send/stream     SSE 流式问答 (CoT 实时推送)
 GET  /chat/conversations   我的对话列表
-GET  /chat/conversations/{id} 对话详情
+GET  /chat/conversations/{id} 对话详情 (含图片 URL)
 DELETE /chat/conversations/{id} 删除对话
+GET  /chat/images/{message_id} 获取图片 (公开端点)
 ```
 
 ### 管理（需 admin）
@@ -129,16 +158,17 @@ DELETE /chat/conversations/{id} 删除对话
 GET  /admin/users          用户列表
 ```
 
-### 运维（公开）
+### 运维
 ```
-GET  /health               数据库 + Ollama + 模型文件状态
+GET  /health               数据库 + Ollama + 模型文件状态 (公开)
+GET  /agent/status         Manager/Memory/Report 三 Agent 状态 (需 JWT)
 ```
 
 ## 两条巡检路径
 
 | | 图像巡检 | 智能问答 |
 |------|------|------|
-| 入口 | Gradio "图像巡检" Tab | Gradio "智能问答" Tab |
+| 入口 | Vue Inspection 页面 | Vue Chat 页面 |
 | 调度 | InspectionSkill (多图→批量CV→LLM报告) | ReAct Agent (LLM 自主选 Tool) |
 | LLM 后端 | Report Agent (本地 Qwen2.5-VL) | Manager (通义千问 API) + Report Agent |
 | Tool 调用 | 固定全跑 4 个 CV | LLM 自主选择 |
@@ -154,10 +184,9 @@ cd backend
 conda activate building-agent
 python scripts/launch_local_llm.py
 
-# 终端 2: FastAPI (或 Gradio)
+# 终端 2: 启动 FastAPI
 conda activate building-agent
-uvicorn api.main:app --port 8000   # REST API
-# python app.py                     # Gradio Web UI (可选)
+uvicorn api.main:app --port 8000
 ```
 
 ### 前端 (Vue 3)
@@ -172,7 +201,7 @@ npm run dev     # http://localhost:5173 (代理 /api → :8000)
 - 不要提交 `.env`、`chroma_db/`、`rag_data/`、`*.docx`、`outputs/`、`chat_images/`
 - 不要在代码中硬编码密码、密钥或内网地址
 - 修改数据模型后必须同步更新测试和 `db/SCHEMA.md`
-- 业务逻辑不放 app.py / api/ 层
+- 业务逻辑不放 api/ 层
 
 ## 相关文档
 - `DEVELOPMENT_PLAN.md`             完整开发路线图
@@ -180,11 +209,11 @@ npm run dev     # http://localhost:5173 (代理 /api → :8000)
 - `history_mk/merge_rag&memory.md`  RAG+Memory 合并记录
 - `history_mk/LLM_FINE_TUNING_GUIDE.md` 微调模型部署指南
 - `history_mk/微调模型本地调用说明.md`    本地 VL 调用说明
-- `openspec/specs/`                 10 个 capability 规格文件
 - `README.md`                       快速启动指南
 
 ## 当前开发阶段
-阶段 2 完成 — 多 Agent 协同 (Manager + Memory + Report) + 前后端分离 (Vue 3 + FastAPI)。
+阶段 2/2.5 完成 — 多 Agent 协同 (Manager + Memory + Report) + 前后端分离 (Vue 3 + FastAPI)。
+代码已重构: Gradio 适配层移除，按职责解耦为独立模块。
 下一步：阶段 3 反馈系统。
 
 ## 快速命令
@@ -192,7 +221,6 @@ npm run dev     # http://localhost:5173 (代理 /api → :8000)
 # 后端
 cd backend
 python scripts/launch_local_llm.py      # 启动本地 LLM 服务
-python app.py                           # Gradio Web UI
 uvicorn api.main:app --port 8000        # FastAPI
 python scripts/build_rag.py             # 构建 RAG 向量库
 python -m pytest tests/ -v              # 测试

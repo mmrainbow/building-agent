@@ -51,10 +51,8 @@ def run_chat(
             images=images,
             image_blobs=image_blobs,
         )
-        from services.constants import TEXT
-
         return {
-            "response": (result.get("response") or "").strip() or TEXT["no_report"],
+            "response": (result.get("response") or "").strip() or "未生成报告。",
             "tool_log": result.get("tool_log", []),
             "conversation_id": conversation_id,
         }

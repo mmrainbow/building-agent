@@ -17,10 +17,12 @@ from .models import (
     FeedbackType,
     MemoryType,
 )
-from .crud import (
+from .crud_user import (
     create_user,
     authenticate_user,
     get_user_by_id,
+)
+from .crud_inspection import (
     save_inspection,
     get_user_records,
     get_all_records,
