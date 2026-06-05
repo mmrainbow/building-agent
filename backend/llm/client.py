@@ -11,7 +11,6 @@
     LLM_TOOL_CALL_MODE     工具调用模式: "native" (默认) 或 "prompt" (文本解析回退)
 """
 
-import json
 import os
 from typing import Any
 
@@ -188,62 +187,3 @@ class LLMClient:
             "model": data.get("model"),
         }
 
-    def chat_with_tools(
-        self,
-        messages: list[dict],
-        tools: list[dict],
-        tool_executor: callable,
-        max_rounds: int = 10,
-    ) -> list[dict]:
-        """ReAct 循环: 自动执行 tool_calls 直到 LLM 生成最终文本回复。
-
-        tool_executor(name, arguments) -> str  # 返回工具执行结果文本
-
-        Returns:
-            [
-                {"role": "assistant", "content": None, "tool_calls": [...]},
-                {"role": "tool", "tool_call_id": "...", "content": "结果"},
-                {"role": "assistant", "content": "最终文本回复"},
-            ]
-        """
-        response_messages = []
-
-        for _ in range(max_rounds):
-            resp = self.chat(messages, tools=tools)
-            response_messages.append(resp)
-
-            if resp.get("tool_calls"):
-                # 添加 assistant 消息（含 tool_calls）
-                assistant_msg = {
-                    "role": "assistant",
-                    "content": resp.get("content"),
-                }
-                if self.tool_call_mode == "native":
-                    assistant_msg["tool_calls"] = resp["tool_calls"]
-                messages.append(assistant_msg)
-
-                # 执行每个 tool_call 并添加 tool 消息
-                for tc in resp["tool_calls"]:
-                    fn_name = tc["function"]["name"]
-                    fn_args = json.loads(tc["function"]["arguments"])
-                    result = tool_executor(fn_name, **fn_args)
-
-                    if self.tool_call_mode == "native":
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": json.dumps(result, ensure_ascii=False),
-                        })
-                    else:
-                        # prompt 模式用 <tool_result> 标签回传
-                        from llm.react_parser import build_tool_result_message
-                        messages.append({
-                            "role": "user",
-                            "content": build_tool_result_message(tc["id"], result),
-                        })
-            else:
-                # 没有 tool_calls → LLM 生成最终回答
-                return response_messages
-
-        # 达到最大轮数仍未结束
-        return response_messages

@@ -169,6 +169,33 @@ def conversation_detail(
         db.close()
 
 
+@router.get("/images/{message_id}")
+def get_chat_images(
+    message_id: int,
+    idx: int = Query(0, ge=0, description="图片索引（0=第一张）"),
+    user: dict = Depends(get_current_user),
+):
+    """获取对话消息中的图片。idx 参数指定第几张（从 0 开始）。"""
+    from fastapi.responses import Response
+    from db.models import ChatImage, ChatMessage
+    db = SessionLocal()
+    try:
+        msg = db.query(ChatMessage).filter(ChatMessage.id == message_id).first()
+        if not msg:
+            raise HTTPException(status_code=404, detail="消息不存在")
+        # 权限校验
+        conv = get_conversation(db, msg.conversation_id)
+        if not conv or conv.user_id != user["user_id"]:
+            raise HTTPException(status_code=403, detail="无权访问")
+        images = msg.images or []
+        if idx >= len(images):
+            raise HTTPException(status_code=404, detail=f"图片索引 {idx} 超出范围 (共 {len(images)} 张)")
+        img = images[idx]
+        return Response(content=img.data, media_type=img.mime_type or "image/jpeg")
+    finally:
+        db.close()
+
+
 @router.delete("/conversations/{conv_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_conversation_endpoint(
     conv_id: int,
@@ -219,6 +246,15 @@ async def chat_send_stream(
                 raise HTTPException(status_code=404, detail="对话不存在")
             if conv.user_id != user["user_id"]:
                 raise HTTPException(status_code=403, detail="无权访问此对话")
+        finally:
+            db.close()
+    else:
+        # 新对话 — 预先创建 Conversation 记录
+        from db import SessionLocal, create_conversation
+        db = SessionLocal()
+        try:
+            conv = create_conversation(db, user["user_id"], title=message[:40])
+            conversation_id = conv.id
         finally:
             db.close()
 

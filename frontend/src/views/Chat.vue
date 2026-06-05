@@ -33,11 +33,12 @@
               <div v-if="msg.html" v-html="msg.html"></div>
               <div v-else class="msg-text">{{ msg.content }}</div>
             </div>
+            <CoTPanel :steps="msg._cotSteps" v-if="msg._cotSteps?.length" :defaultExpanded="false" class="msg-cot" />
           </div>
         </div>
 
         <CoTPanel :steps="streamSteps" v-if="streamSteps.length" />
-        <div v-if="sending" class="thinking-hint">
+        <div v-if="sending && !streamSteps.length" class="thinking-hint">
           <span class="dot-pulse">🧠 Manager Agent 思考中</span>
         </div>
       </div>
@@ -92,17 +93,34 @@ async function switchConv(id) {
   currentId.value = id; streamSteps.value = []
   try {
     const data = await chatAPI.getConversation(id)
-    messages.value = data.messages.map(m => {
+    const msgs = []
+    for (const m of data.messages) {
       const meta = m.metadata || {}
-      return {
+      const msg = {
         role: m.role,
         content: m.content || '',
         html: m.role === 'assistant' && /<img|<div|<pre/i.test(m.content || '') ? m.content : null,
-        images: meta.has_image && meta.image_count
-          ? Array.from({length: meta.image_count}, (_, i) => `/api/chat/images/${m.id}?idx=${i}`)
+        images: meta.has_image
+          ? Array.from({length: meta.image_count || 1}, (_, i) => `/api/chat/images/${m.id}?idx=${i}`)
           : null,
+        toolCalls: meta.tool_calls || null,
       }
-    })
+      msgs.push(msg)
+      // 从 assistant 消息的 metadata 提取 CoT
+      if (m.role === 'assistant' && meta.tool_calls?.length) {
+        const steps = []
+        for (const tc of meta.tool_calls) {
+          steps.push({
+            type: 'tool',
+            name: tc.name,
+            status: 'done',
+            elapsed_ms: tc.elapsed_ms || 0,
+          })
+        }
+        msg._cotSteps = steps
+      }
+    }
+    messages.value = msgs
   } catch(e) { console.error(e) }
   await nextTick(); scrollBottom()
 }
@@ -254,14 +272,15 @@ function scrollBottom() {
 .msg-user-wrap { text-align: right; }
 .msg-ai-wrap { text-align: left; }
 .msg-img {
-  max-width: 320px;
-  max-height: 240px;
+  width: auto;
+  height: auto;
+  max-width: 200px;
+  max-height: 200px;
   border-radius: 10px;
-  display: block;
-  margin-left: auto;
-  margin-bottom: 6px;
+  object-fit: cover;
   border: 1px solid #e8e2d8;
-  object-fit: contain;
+  flex-shrink: 0;
+  margin-bottom: 4px;
 }
 .msg-bubble {
   display: inline-block;
@@ -284,6 +303,7 @@ function scrollBottom() {
   border: 1px solid #e8e2d8;
 }
 .msg-text { white-space: pre-wrap; }
+.msg-cot { margin-top: 6px; max-width: 85%; }
 
 /* ── 输入区 ── */
 .chat-input-row { display: flex; gap: 10px; align-items: flex-end; }

@@ -20,7 +20,7 @@ _IMAGE_INDICES_PARAM = {
     "image_indices": {
         "type": "array",
         "items": {"type": "integer"},
-        "description": "要分析的图片编号列表（1=图1, 2=图2...）。不填则分析全部已上传图片。例如 [1,2] 表示分析前两张，[2] 表示只分析第二张。",
+        "description": "Image indices to analyze (1-based). Omit to analyze all uploaded images. Example: [1,2] for first two, [2] for second only.",
     },
 }
 
@@ -30,7 +30,7 @@ MATERIAL_SCHEMA = {
     "type": "function",
     "function": {
         "name": "classify_material",
-        "description": "识别建筑外墙材质类型。返回如 Face Brick(面砖)、Coating(涂料)、Stone Hanging(石材干挂)、Glass Curtain Wall(玻璃幕墙)、Aluminum Plate(铝板)、Real Stone Paint(真石漆)等。",
+        "description": "Identify building facade material type. Returns e.g. Face Brick, Coating, Stone Hanging, Glass Curtain Wall, Aluminum Plate, Real Stone Paint.",
         "parameters": {
             "type": "object",
             "properties": {**_IMAGE_INDICES_PARAM},
@@ -42,7 +42,7 @@ FLOOR_SCHEMA = {
     "type": "function",
     "function": {
         "name": "estimate_floors",
-        "description": "基于建筑外立面窗户排列估算楼层数量。返回如'5层'。",
+        "description": "Estimate number of floors based on window arrangement on building facade. Returns e.g. '5 floors'.",
         "parameters": {
             "type": "object",
             "properties": {**_IMAGE_INDICES_PARAM},
@@ -54,7 +54,7 @@ EXTENSION_SCHEMA = {
     "type": "function",
     "function": {
         "name": "detect_extension",
-        "description": "检测建筑是否存在违建加层（屋顶私自加盖）。返回'有加层'或'无加层'。",
+        "description": "Detect illegal roof extensions or added floors on building. Returns 'has extension' or 'no extension'.",
         "parameters": {
             "type": "object",
             "properties": {**_IMAGE_INDICES_PARAM},
@@ -66,7 +66,7 @@ DEFECT_SCHEMA = {
     "type": "function",
     "function": {
         "name": "detect_defects",
-        "description": "检测建筑外墙隐患，包括空鼓、渗水、脱落、裂缝四种类型。返回隐患列表，每项含编号(id)、类型(type)、面积(area)、坐标框(box)。",
+        "description": "Detect building facade defects: hollowing, water seepage, spalling, cracks. Returns defect list with id, type, area, and bounding box coordinates.",
         "parameters": {
             "type": "object",
             "properties": {**_IMAGE_INDICES_PARAM},
@@ -78,13 +78,13 @@ KNOWLEDGE_SCHEMA = {
     "type": "function",
     "function": {
         "name": "search_knowledge",
-        "description": "检索建筑规范、巡检标准、缺陷判定阈值、常见处理方法等相关知识。用于辅助生成专业报告。",
+        "description": "Search building codes, inspection standards, defect criteria, and treatment methods to assist report generation.",
         "parameters": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "检索关键词或问题，如'面砖脱落原因分析'、'裂缝宽度危险标准'、'外墙渗水处理方案'",
+                    "description": "Search keywords or question, e.g. 'spalling causes', 'crack width safety threshold', 'water seepage treatment'",
                 }
             },
             "required": ["query"],
@@ -265,28 +265,27 @@ REPORT_SCHEMA = {
     "function": {
         "name": "generate_report",
         "description": (
-            "调用本地专业报告 Agent（微调 Qwen2.5-VL 模型）生成正式建筑巡检报告。"
-            "当你已完成所需检测工具调用、收集了足够数据后，应调用此工具来生成专业报告。"
-            "Report Agent 能生成比你自己写更专业、更符合住建规范的报告。"
+            "Call the local Report Agent (fine-tuned Qwen2.5-VL model) to generate a formal building inspection report. "
+            "Call this tool after collecting sufficient detection data, instead of writing the report yourself."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "material": {
                     "type": "string",
-                    "description": "材质检测结果，如'面砖'、'涂料'",
+                    "description": "Material detection result, e.g. 'Face Brick', 'Coating'",
                 },
                 "floor": {
                     "type": "string",
-                    "description": "楼层检测结果，如'18层'",
+                    "description": "Floor count result, e.g. '18 floors'",
                 },
                 "has_extension": {
                     "type": "string",
-                    "description": "加层检测结果，如'有加层'或'无加层'",
+                    "description": "Extension detection result, e.g. 'has extension' or 'no extension'",
                 },
                 "defects_summary": {
                     "type": "string",
-                    "description": "隐患检测结果摘要，简述检测到的缺陷类型和数量",
+                    "description": "Summary of detected defects including types and counts",
                 },
             },
             "required": [],

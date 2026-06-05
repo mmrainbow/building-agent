@@ -1,129 +1,152 @@
-# Building Inspection Assistant
+# Building Agent
 
-AI-powered building facade inspection system with:
-- image-based inspection
-- report generation with Ollama LLM
-- history management
-- statistics dashboard
-- Q&A based on latest report
+AI 驱动的建筑外立面巡检系统 — 三 Agent 协同架构。
 
-## Project Structure
+| Agent | 模型 | 职责 |
+|---|---|---|
+| **Manager Agent** | 通义千问 qwen3.6-flash | 理解意图、调度 CV 工具、解读结果 |
+| **Memory Agent** | 通义千问 qwen-turbo | 自动从对话中提取长期记忆 |
+| **Report Agent** | 本地微调 Qwen2.5-VL-3B | 生成专业中文巡检报告 |
 
-```text
-agent/
-├── agent/
-│   ├── graph.py
-│   ├── nodes.py
-│   └── state.py
-├── predictors/
-│   ├── base.py
-│   ├── floor.py
-│   ├── floor_recognition.py
-│   ├── added_floor.py
-│   ├── material.py
-│   └── hidden_danger.py
-├── db/
-│   ├── models.py
-│   ├── database.py
-│   └── crud.py
-├── api/
-│   └── main.py
-├── app.py
-├── main.py
-└── requirements.txt
-```
+技术栈: Python 3.10+ / FastAPI / Vue 3 / SQLAlchemy 2 / ChromaDB / YOLO / PyTorch
 
-## Requirements
+---
 
-- Python 3.10+
-- Optional MySQL (default DB is local SQLite)
-- Optional CUDA
-- Ollama with model `qwen2:1.5b`
+## 前置条件
 
-## Install
+- **Conda 环境** `building-agent`，Python 3.10+
+- **Node.js** 18+（前端）
+- **阿里云百炼 API Key**（Manager + Memory Agent 调用通义千问）
+- **CUDA**（可选，加速 CV 模型推理）
+- 模型权重文件放入 `backend/model_weights/`（5 个 .pt/.pth 文件）
+- 微调模型目录 `backend/qwen2_5_vl_3b_building_merged/`（Report Agent 需要）
+
+---
+
+## 启动方式
+
+### 1. 安装依赖
 
 ```bash
+# 后端
+cd backend
 pip install -r requirements.txt
-ollama pull qwen2:1.5b
+
+# 前端
+cd frontend
+npm install
 ```
 
-## Configuration
+### 2. 配置 API Key
 
-Environment variables:
+编辑 `backend/.env`，填入你的百炼 API Key：
 
-- `INSPECTION_DB_URL` (default: `sqlite:///./inspection.db`)
-- `OLLAMA_BASE_URL` (default: `http://localhost:11434`)
-- `OLLAMA_MODEL` (default: `qwen2:1.5b`)
-- `LOCAL_VL_MODEL_ENABLED` (default: `false`, set `true` to use the fine-tuned local VL model)
-- `LOCAL_VL_MODEL_PATH` (default: `./outputs/qwen2_5_vl_3b_building_merged`)
-- `LOCAL_VL_DEVICE_MAP` (default: `auto`)
-- `LOCAL_VL_TORCH_DTYPE` (default: `float16`)
-- `LOCAL_VL_MAX_NEW_TOKENS` (default: `512`)
-- `LOCAL_VL_MAX_PIXELS` (default: `131072`)
-- `INIT_ADMIN_USERNAME` (default: `admin`)
-- `INIT_ADMIN_PASSWORD` (required only for first-time admin bootstrap)
+```ini
+LLM_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
 
-Examples:
+### 3. 启动 Report Agent（可选但推荐）
+
+打开终端 1：
 
 ```bash
-# PowerShell
-$env:INSPECTION_DB_URL="mysql+pymysql://user:pass@localhost:3306/building_inspection"
-$env:INIT_ADMIN_PASSWORD="StrongPassword123!"
-$env:LOCAL_VL_MODEL_ENABLED="true"
-$env:LOCAL_VL_MODEL_PATH="./outputs/qwen2_5_vl_3b_building_merged"
-
-# Linux / macOS
-export INSPECTION_DB_URL="mysql+pymysql://user:pass@localhost:3306/building_inspection"
-export INIT_ADMIN_PASSWORD="StrongPassword123!"
-export LOCAL_VL_MODEL_ENABLED="true"
-export LOCAL_VL_MODEL_PATH="./outputs/qwen2_5_vl_3b_building_merged"
+cd backend
+conda activate building-agent
+python scripts/launch_local_llm.py
 ```
 
-## Fine-tuned Local VL Model
+启动后监听 `http://127.0.0.1:8000`，提供 `/v1/report` 和 `/v1/chat/completions` 端点。
 
-The project can use the merged Qwen2.5-VL fine-tuned model for report generation.
-When `LOCAL_VL_MODEL_ENABLED=true`, `agent/nodes.py` calls `llm/local_vl_model.py`
-first. If local inference fails, the system falls back to Ollama.
+如果不启动 Report Agent，Manager 仍可调用 CV 工具分析图片，但无法生成最终巡检报告。
 
-To share the model with another developer, provide the full merged model directory:
+### 4. 启动后端 API
 
-```text
-outputs/qwen2_5_vl_3b_building_merged
-```
-
-Do not provide only one `.safetensors` file. The directory also contains tokenizer,
-processor, config, and generation settings required for local loading.
-
-## Run
-
-Gradio UI:
+打开终端 2：
 
 ```bash
-python app.py
+cd backend
+conda activate building-agent
+uvicorn api.main:app --host 0.0.0.0 --port 8001
 ```
 
-CLI:
+后端运行在 `http://localhost:8001`。
+
+如果 Report Agent 已占用了 8000 端口，记得换一个端口（如 8001）。
+
+### 5. 启动前端
+
+打开终端 3：
 
 ```bash
-python main.py
+cd frontend
+npm run dev
 ```
 
-FastAPI:
+前端运行在 `http://localhost:5173`，请求自动代理到后端。
+
+---
+
+## 启动总结（三条命令）
 
 ```bash
-uvicorn api.main:app --host 0.0.0.0 --port 8000
+# 终端 1 — Report Agent
+cd backend && conda activate building-agent && python scripts/launch_local_llm.py
+
+# 终端 2 — 后端 API
+cd backend && conda activate building-agent && uvicorn api.main:app --host 0.0.0.0 --port 8001
+
+# 终端 3 — 前端
+cd frontend && npm run dev
 ```
 
-## API Endpoints
+---
 
-- `POST /predict`
-- `GET /history`
-- `GET /history/{record_id}`
-- `GET /statistics`
+## API 端点
 
-Authentication uses HTTP Basic.
+### 认证（公开）
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/register` | 用户注册 |
+| POST | `/login` | JSON 登录 |
+| POST | `/token` | OAuth2 表单登录 |
+| POST | `/token/refresh` | 刷新 JWT |
 
-## Notes
+### 巡检（需 JWT）
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/inspection/multi` | 多图巡检 |
+| GET | `/history` | 巡检列表（分页） |
+| GET | `/history/{id}` | 单条详情 |
+| GET | `/history/{id}/export` | 导出 Excel |
+| GET | `/statistics` | 统计汇总 |
 
-- If no users exist and `INIT_ADMIN_PASSWORD` is set, the app creates the initial admin account.
-- If `INIT_ADMIN_PASSWORD` is not set, no default admin account is created.
+### 对话（需 JWT）
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/chat/send` | 发送消息（支持多图） |
+| POST | `/chat/send/stream` | SSE 流式问答（支持多图） |
+| GET | `/chat/conversations` | 对话列表 |
+| GET | `/chat/conversations/{id}` | 对话详情 |
+| DELETE | `/chat/conversations/{id}` | 删除对话 |
+
+### 其他
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/health` | 健康检查 |
+| GET | `/agent/status` | Agent 监控 |
+| GET | `/admin/users` | 用户列表（admin） |
+
+---
+
+## 关键环境变量
+
+| 变量 | 说明 | 默认值 |
+|---|---|---|
+| `LLM_API_KEY` | 百炼 API Key | 必填 |
+| `LLM_MODEL` | Manager 模型 | `qwen3.6-flash` |
+| `MEMORY_LLM_MODEL` | Memory Agent 模型 | `qwen-turbo` |
+| `REPORT_AGENT_URL` | Report Agent 地址 | `http://localhost:8000` |
+| `INSPECTION_DB_URL` | 数据库连接 | `sqlite:///./inspection.db` |
+| `JWT_SECRET_KEY` | JWT 签名密钥 | 必填 |
+| `INIT_ADMIN_USERNAME` | 初始管理员 | `admin` |
+| `INIT_ADMIN_PASSWORD` | 初始管理员密码 | 必填 |
