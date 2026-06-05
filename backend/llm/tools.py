@@ -3,22 +3,38 @@
 每个 Tool 的输出会被 LLM 阅读并用于生成巡检报告，因此返回值统一为中文可读文本。
 
 延迟加载: CV Predictor 只在首次调用时加载模型权重，避免 import 时依赖 torch。
+
+多图支持: 每个 CV Tool 的 schema 包含可选的 image_indices 参数，
+Manager Agent 可以指定分析哪些图片（如 [1,3] 表示只分析图1和图3）。
 """
 
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+# ── 图片索引参数（注入到每个 CV Tool 的 schema）─────────────
+
+_IMAGE_INDICES_PARAM = {
+    "image_indices": {
+        "type": "array",
+        "items": {"type": "integer"},
+        "description": "要分析的图片编号列表（1=图1, 2=图2...）。不填则分析全部已上传图片。例如 [1,2] 表示分析前两张，[2] 表示只分析第二张。",
+    },
+}
+
 # ── Tool Schema 定义（OpenAI function call 格式）─────────────
 
-# 4 个 CV Tool 无显式参数 —— 图像由 orchestrator 在处理时注入
 MATERIAL_SCHEMA = {
     "type": "function",
     "function": {
         "name": "classify_material",
-        "description": "识别建筑外墙材质类型。返回列表如 Face Brick(面砖)、Coating(涂料)、Stone Hanging(石材干挂)、Glass Curtain Wall(玻璃幕墙)、Aluminum Plate(铝板)、Real Stone Paint(真石漆)等。",
-        "parameters": {"type": "object", "properties": {}},
+        "description": "识别建筑外墙材质类型。返回如 Face Brick(面砖)、Coating(涂料)、Stone Hanging(石材干挂)、Glass Curtain Wall(玻璃幕墙)、Aluminum Plate(铝板)、Real Stone Paint(真石漆)等。",
+        "parameters": {
+            "type": "object",
+            "properties": {**_IMAGE_INDICES_PARAM},
+        },
     },
 }
 
@@ -27,7 +43,10 @@ FLOOR_SCHEMA = {
     "function": {
         "name": "estimate_floors",
         "description": "基于建筑外立面窗户排列估算楼层数量。返回如'5层'。",
-        "parameters": {"type": "object", "properties": {}},
+        "parameters": {
+            "type": "object",
+            "properties": {**_IMAGE_INDICES_PARAM},
+        },
     },
 }
 
@@ -36,7 +55,10 @@ EXTENSION_SCHEMA = {
     "function": {
         "name": "detect_extension",
         "description": "检测建筑是否存在违建加层（屋顶私自加盖）。返回'有加层'或'无加层'。",
-        "parameters": {"type": "object", "properties": {}},
+        "parameters": {
+            "type": "object",
+            "properties": {**_IMAGE_INDICES_PARAM},
+        },
     },
 }
 
@@ -45,7 +67,10 @@ DEFECT_SCHEMA = {
     "function": {
         "name": "detect_defects",
         "description": "检测建筑外墙隐患，包括空鼓、渗水、脱落、裂缝四种类型。返回隐患列表，每项含编号(id)、类型(type)、面积(area)、坐标框(box)。",
-        "parameters": {"type": "object", "properties": {}},
+        "parameters": {
+            "type": "object",
+            "properties": {**_IMAGE_INDICES_PARAM},
+        },
     },
 }
 
@@ -71,13 +96,30 @@ KNOWLEDGE_SCHEMA = {
 # ── Tool 实现 ──────────────────────────────────────────────
 
 
+def _select_images(images: list, image_indices: list[int] | None) -> list[tuple[int, Any]]:
+    """根据 image_indices 筛选图片，返回 [(1-based index, image), ...]。
+
+    image_indices 为 None 时返回全部图片。
+    """
+    if not images:
+        return []
+    if image_indices:
+        result = []
+        for i in image_indices:
+            if 1 <= i <= len(images):
+                result.append((i, images[i - 1]))
+        return result
+    return [(i + 1, img) for i, img in enumerate(images)]
+
+
 class CVToolWrapper:
     """将 BasePredictor 子类包装为 OpenAI Tool。
 
     延迟加载 — 首次调用 execute() 时才加载模型权重。
+    支持多图: 根据 image_indices 选择分析目标图片。
     """
 
-    def __init__(self, schema: dict, predictor_factory: callable):
+    def __init__(self, schema: dict, predictor_factory: Callable):
         self.schema = schema
         self._predictor = None
         self._factory = predictor_factory
@@ -86,17 +128,25 @@ class CVToolWrapper:
         if self._predictor is None:
             self._predictor = self._factory()
 
-    def execute(self, image=None, **kwargs) -> str:
+    def execute(self, images=None, image_indices=None, **kwargs) -> str:
         """执行推理，返回中文可读文本结果。"""
-        if image is None:
+        if not images:
             return "错误：需要图片输入，但当前未提供图片。"
         self._ensure_loaded()
-        try:
-            result = self._predictor.predict([image])
-            value = result[0] if result else None
-            return self._format_output(value)
-        except Exception as e:
-            return f"推理失败: {e}"
+        selected = _select_images(images, image_indices)
+        if not selected:
+            return "错误：指定的图片编号无效。"
+        results = []
+        for idx, img in selected:
+            try:
+                result = self._predictor.predict([img])
+                value = result[0] if result else None
+                label = f"[图{idx}]" if len(images) > 1 else ""
+                out = self._format_output(value)
+                results.append(f"{label} {out}".strip())
+            except Exception as e:
+                results.append(f"[图{idx}] 推理失败: {e}")
+        return "\n".join(results)
 
     def _format_output(self, value):
         """子类可覆盖以定制输出格式。"""
@@ -107,38 +157,57 @@ class CVToolWrapper:
         return str(value)
 
 
-# 缓存最近一次 defect 检测的原始结果，供 generate_report 画框用
-_last_defects_raw: list[dict] | None = None
+# 缓存最近一次 defect 检测的原始结果 (dict: image_index → defects)，供 generate_report 画框用
+_last_defects_cache: dict[int, list[dict]] = {}
 
 
 class DefectToolWrapper(CVToolWrapper):
     """隐患检测专用 — 输出中文类型名和面积，同步入库到 Defect 表。"""
 
-    def execute(self, image=None, db=None, chat_image_id=None, **kwargs) -> str:
-        global _last_defects_raw
-        result = super().execute(image=image)
-        # 缓存原始检测结果（含 box_coords），供 generate_report 画框
-        if image is not None:
+    def execute(self, images=None, image_indices=None, db=None, chat_image_ids=None, **kwargs) -> str:
+        global _last_defects_cache
+        _last_defects_cache = {}
+        if not images:
+            return "错误：需要图片输入，但当前未提供图片。"
+        self._ensure_loaded()
+        selected = _select_images(images, image_indices)
+        if not selected:
+            return "错误：指定的图片编号无效。"
+
+        all_results = []
+        for idx, img in selected:
             try:
-                raw = self._predictor.predict([image])
-                _last_defects_raw = raw[0] if raw else None
+                raw = self._predictor.predict([img])
+                defects = raw[0] if raw else []
+                if not isinstance(defects, list):
+                    defects = []
+                _last_defects_cache[idx] = defects
             except Exception:
-                _last_defects_raw = None
-        # 入库: 对话中检测到的隐患直接关联 chat_image
-        if db and chat_image_id and image is not None and _last_defects_raw:
-            try:
-                from db.models import Defect
-                for d in _last_defects_raw:
-                    db.add(Defect(
-                        chat_image_id=chat_image_id,
-                        defect_type=str(d.get("type", "")),
-                        area=float(d.get("area", 0) or 0),
-                        box_coords=d.get("box", []),
-                    ))
-                db.commit()
-            except Exception as e:
-                print(f"[DefectTool] 入库失败: {e}")
-        return result
+                defects = []
+                _last_defects_cache[idx] = []
+
+            # 入库: 关联对应图片的 chat_image_id
+            cid = None
+            if chat_image_ids and 1 <= idx <= len(chat_image_ids):
+                cid = chat_image_ids[idx - 1]
+            if db and cid and defects:
+                try:
+                    from db.models import Defect
+                    for d in defects:
+                        db.add(Defect(
+                            chat_image_id=cid,
+                            defect_type=str(d.get("type", "")),
+                            area=float(d.get("area", 0) or 0),
+                            box_coords=d.get("box", []),
+                        ))
+                    db.commit()
+                except Exception as e:
+                    print(f"[DefectTool] 入库失败: {e}")
+
+            label = f"[图{idx}]" if len(images) > 1 else ""
+            all_results.append(f"{label} {self._format_output(defects)}".strip())
+
+        return "\n".join(all_results)
 
     def _format_output(self, value):
         if not value:
@@ -149,38 +218,30 @@ class DefectToolWrapper(CVToolWrapper):
                 f"隐患#{d.get('id', '?')}: {d.get('type', '未知')} "
                 f"(面积: {d.get('area', 0):.0f}px²)"
             )
-        return "检测到 {} 处隐患:\n{}".format(len(items), "\n".join(items))
+        return f"检测到 {len(items)} 处隐患:\n" + "\n".join(items) if items else "未检测到明显隐患。"
 
 
 class KnowledgeSearchTool:
-    """建筑规范知识检索 Tool — ChromaDB 语义检索 + SQLite 用户记忆回退。
-
-    优先从 ChromaDB 检索建筑规范条文（agent/rag.py），
-    向量库不可用时回退到用户长期记忆（conversation_memories）。
-    """
+    """建筑规范知识检索 Tool — ChromaDB 语义检索 + SQLite 用户记忆回退。"""
 
     @property
     def schema(self):
         return KNOWLEDGE_SCHEMA
 
-    def execute(self, query=None, user_id=None, image=None, **kwargs) -> str:
+    def execute(self, query=None, user_id=None, **kwargs) -> str:
         if not query:
             return "错误：请提供检索关键词。"
 
-        # 优先: ChromaDB 建筑规范检索
         try:
             from agent.rag import search_regulations
-
             regs = search_regulations(query, k=5)
             if regs:
                 return f"📋 建筑规范条文:\n\n{regs}"
         except Exception as e:
             print(f"[KnowledgeSearch] ChromaDB 检索异常: {e}")
 
-        # 回退: 用户长期记忆
         try:
             from db import SessionLocal, search_memories_by_keyword
-
             db = SessionLocal()
             try:
                 results = search_memories_by_keyword(
@@ -237,7 +298,7 @@ REPORT_SCHEMA = {
 class ReportAgentTool:
     """Report Agent Tool — 将检测结果和图片发送给本地 Report Agent 生成专业报告。
 
-    通过 HTTP POST 调用 localhost 上运行的 Report Agent 服务。
+    支持多图: 将选定图片的缺陷标注框画到图上，一起发送给 Report Agent。
     """
 
     def __init__(self, report_agent_url: str | None = None):
@@ -247,41 +308,52 @@ class ReportAgentTool:
     def schema(self):
         return REPORT_SCHEMA
 
-    def execute(self, image=None, material="", floor="", has_extension="", defects_summary="", **kwargs) -> str:
-        if image is None:
+    def execute(self, images=None, image_indices=None, material="", floor="", has_extension="", defects_summary="", **kwargs) -> str:
+        if not images:
             return "错误：需要图片才能生成报告。请先确保用户已上传图片。"
 
         import base64
 
-        global _last_defects_raw
+        global _last_defects_cache
 
-        # 如果有缓存的缺陷检测结果，画框到图片上
-        if _last_defects_raw:
-            rendered = image.copy()
-            for d in _last_defects_raw:
-                box = d.get("box", [])
-                if len(box) == 4:
-                    pts = __import__("numpy").array(box, dtype=__import__("numpy").int32).reshape((-1, 1, 2))
-                    __import__("cv2").polylines(rendered, [pts], isClosed=True, color=(255, 0, 0), thickness=3)
-                    label = str(d.get("id", "?"))
-                    x, y = pts[0][0]
-                    __import__("cv2").putText(rendered, label, (x, y - 8), __import__("cv2").FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
-            # 编码标注后的图片
-            _, buf = __import__("cv2").imencode(".jpg", rendered)
-            image_b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
-            defects_payload = _last_defects_raw
-            _last_defects_raw = None  # 用完清掉
-        else:
-            _, buf = __import__("cv2").imencode(".jpg", image)
-            image_b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
-            defects_payload = []
+        selected = _select_images(images, image_indices)
+        if not selected:
+            selected = [(i + 1, img) for i, img in enumerate(images)]
+
+        # 逐图处理: 有缺陷缓存的画框，没有的直接编码
+        images_b64 = []
+        all_defects = []
+        for idx, img in selected:
+            defects = _last_defects_cache.get(idx, [])
+            if defects:
+                rendered = img.copy()
+                for d in defects:
+                    box = d.get("box", [])
+                    if len(box) == 4:
+                        pts = __import__("numpy").array(box, dtype=__import__("numpy").int32).reshape((-1, 1, 2))
+                        __import__("cv2").polylines(rendered, [pts], isClosed=True, color=(255, 0, 0), thickness=3)
+                        label = str(d.get("id", "?"))
+                        x, y = pts[0][0]
+                        __import__("cv2").putText(rendered, label, (x, y - 8), __import__("cv2").FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+                _, buf = __import__("cv2").imencode(".jpg", rendered)
+                images_b64.append(base64.b64encode(buf.tobytes()).decode("utf-8"))
+                for d in defects:
+                    d_copy = dict(d)
+                    d_copy["image_index"] = idx
+                    all_defects.append(d_copy)
+            else:
+                _, buf = __import__("cv2").imencode(".jpg", img)
+                images_b64.append(base64.b64encode(buf.tobytes()).decode("utf-8"))
+
+        _last_defects_cache = {}
 
         payload = {
-            "image_base64": image_b64,
+            "images_base64": images_b64,
+            "image_base64": images_b64[0] if images_b64 else "",
             "material": material or "Unknown",
             "floor": floor or "Unknown",
             "has_extension": has_extension or "Unknown",
-            "defects": defects_payload,
+            "defects": all_defects,
         }
 
         try:
@@ -293,9 +365,11 @@ class ReportAgentTool:
             if resp.status_code == 200:
                 data = resp.json()
                 elapsed = data.get("elapsed_seconds", 0)
-                # 带有标注框的图片以 data URI 嵌入，Chatbot 可直接渲染
-                img_tag = f'<img src="data:image/jpeg;base64,{image_b64}" style="max-width:400px;border:1px solid #ddd;margin:8px 0">'
-                return f"{img_tag}\n\n📋 **专业巡检报告** (生成耗时 {elapsed:.1f}s):\n\n{data['report']}"
+                img_tags = "".join(
+                    f'<img src="data:image/jpeg;base64,{b64}" style="max-width:400px;border:1px solid #ddd;margin:8px 0">'
+                    for b64 in images_b64
+                )
+                return f"{img_tags}\n\n📋 **专业巡检报告** (生成耗时 {elapsed:.1f}s):\n\n{data['report']}"
             return f"Report Agent 调用失败: HTTP {resp.status_code}"
         except Exception as e:
             return f"Report Agent 不可达 ({self.url}): {e}"
@@ -342,12 +416,21 @@ def get_tool_schemas(tools: dict) -> list[dict]:
     return [t.schema for t in tools.values()]
 
 
-def execute_tool(tools: dict, name: str, image=None, db=None, chat_image_id=None, **kwargs) -> str:
-    """根据名称执行 Tool，返回结果字符串。"""
+def execute_tool(tools: dict, name: str, images=None, db=None, chat_image_ids=None, **kwargs) -> str:
+    """根据名称执行 Tool，返回结果字符串。
+
+    Args:
+        tools: build_tools() 返回的 tool 字典
+        name: tool 名称
+        images: numpy 图像列表 (多图)
+        db: SQLAlchemy Session
+        chat_image_ids: 每张图片的 ChatImage ID 列表
+        **kwargs: 传递给 tool.execute() 的额外参数（含 LLM 传的 image_indices 等）
+    """
     if name not in tools:
         return f"未知工具 '{name}'，可用: {', '.join(tools.keys())}"
     tool = tools[name]
-    return tool.execute(image=image, db=db, chat_image_id=chat_image_id, **kwargs)
+    return tool.execute(images=images, db=db, chat_image_ids=chat_image_ids, **kwargs)
 
 
 def format_tool_result_for_llm(tool_name: str, result: str) -> str:
@@ -360,13 +443,11 @@ def format_tool_result_for_llm(tool_name: str, result: str) -> str:
 
 def _make_material_predictor(model_dir: str):
     from predictors.material import MaterialPredictor
-
     return MaterialPredictor(os.path.join(model_dir, "material.pth"))
 
 
 def _make_floor_predictor(model_dir: str):
     from predictors.floor import FloorPredictor
-
     return FloorPredictor(
         os.path.join(model_dir, "main_building.pt"),
         os.path.join(model_dir, "outer_obj.pt"),
@@ -375,11 +456,9 @@ def _make_floor_predictor(model_dir: str):
 
 def _make_extension_predictor(model_dir: str):
     from predictors.added_floor import AddedFloorPredictor
-
     return AddedFloorPredictor(os.path.join(model_dir, "add_predict.pth"))
 
 
 def _make_defect_predictor(model_dir: str):
     from predictors.hidden_danger import HiddenDangerPredictor
-
     return HiddenDangerPredictor(os.path.join(model_dir, "best.pt"))

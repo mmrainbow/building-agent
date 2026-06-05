@@ -125,8 +125,8 @@ def chat_with_llm_stream(message, history, user_state, image=None):
             conversation_id=conv_id,
             message=full_message,
             db=db,
-            image=img,
-            image_blob=image_blob,
+            images=[img] if img is not None else None,
+            image_blobs=[image_blob] if image_blob else None,
             on_step=_on_step,
         )
 
@@ -188,8 +188,8 @@ def chat_with_llm(message, history, user_state, image=None):
             conversation_id=conv_id,
             message=full_message,
             db=db,
-            image=img,
-            image_blob=image_blob,
+            images=[img] if img is not None else None,
+            image_blobs=[image_blob] if image_blob else None,
         )
         response = (result.get("response") or "").strip() or TEXT["no_report"]
 

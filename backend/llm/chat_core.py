@@ -15,12 +15,17 @@ def decode_image(content: bytes) -> np.ndarray | None:
     return img if img is not None else None
 
 
+def decode_images(contents: list[bytes]) -> list[np.ndarray]:
+    """批量解码 — 返回成功解码的图像列表（跳过失败项）。"""
+    return [img for c in contents if (img := decode_image(c)) is not None]
+
+
 def run_chat(
     user_id: int,
     message: str,
     conversation_id: int | None = None,
-    image: np.ndarray | None = None,
-    image_blob: bytes | None = None,
+    images: list[np.ndarray] | None = None,
+    image_blobs: list[bytes] | None = None,
 ) -> dict:
     """创建/续接对话 → 调用 Agent → 返回结果。
 
@@ -43,8 +48,8 @@ def run_chat(
             conversation_id=conversation_id,
             message=message,
             db=db,
-            image=image,
-            image_blob=image_blob,
+            images=images,
+            image_blobs=image_blobs,
         )
         from services.constants import TEXT
 

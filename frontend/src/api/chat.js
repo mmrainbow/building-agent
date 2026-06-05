@@ -1,22 +1,29 @@
 import client from './index'
 
 export const chatAPI = {
-  send: (message, conversationId, imageFile) => {
+  send: (message, conversationId, imageFiles) => {
     const form = new FormData()
-    if (imageFile) form.append('image', imageFile)
+    if (imageFiles && imageFiles.length) {
+      imageFiles.forEach(f => form.append('images', f))
+    }
     const params = { message, conversation_id: conversationId || undefined }
     return client.post('/chat/send', form, { params,
-      headers: imageFile ? { 'Content-Type': 'multipart/form-data' } : {},
+      headers: imageFiles?.length ? { 'Content-Type': 'multipart/form-data' } : {},
     }).then((r) => r.data)
   },
 
-  sendStream: (message, conversationId, onStep, onDone, onError) => {
+  sendStream: (message, conversationId, imageFiles, onStep, onDone, onError) => {
+    const form = new FormData()
+    if (imageFiles && imageFiles.length) {
+      imageFiles.forEach(f => form.append('images', f))
+    }
+    const token = localStorage.getItem('token')
     const params = new URLSearchParams({ message })
     if (conversationId) params.append('conversation_id', conversationId)
-    const token = localStorage.getItem('token')
     fetch(`/api/chat/send/stream?${params}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
+      body: imageFiles?.length ? form : undefined,
     }).then(async (res) => {
       const reader = res.body.getReader()
       const decoder = new TextDecoder()

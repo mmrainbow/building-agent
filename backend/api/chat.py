@@ -16,7 +16,7 @@ from db import (
     get_user_conversations,
     update_conversation_title,
 )
-from llm.chat_core import decode_image, run_chat
+from llm.chat_core import decode_image, decode_images, run_chat
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -57,20 +57,21 @@ class ConversationDetail(BaseModel):
 async def chat_send(
     message: str = Query(..., description="用户输入文本"),
     conversation_id: int | None = Query(None),
-    image: UploadFile | None = File(None),
+    images: list[UploadFile] = File(default_factory=list),
     user: dict = Depends(get_current_user),
 ):
     # 图片解码 → JPEG 字节（入库用）
-    np_image = None
-    image_blob = None
-    if image is not None:
-        content = await image.read()
+    np_images = []
+    image_blobs = []
+    for img in images:
+        content = await img.read()
         if not content:
-            raise HTTPException(status_code=400, detail="上传的图片为空")
-        np_image = decode_image(content)
-        if np_image is None:
-            raise HTTPException(status_code=400, detail="无法解码图片")
-        image_blob = content  # 原始上传字节即 JPEG
+            raise HTTPException(status_code=400, detail=f"图片 '{img.filename}' 为空")
+        np_img = decode_image(content)
+        if np_img is None:
+            raise HTTPException(status_code=400, detail=f"无法解码图片 '{img.filename}'")
+        np_images.append(np_img)
+        image_blobs.append(content)
 
     # 已有对话权限校验
     if conversation_id is not None:
@@ -89,8 +90,8 @@ async def chat_send(
         user_id=user["user_id"],
         message=message,
         conversation_id=conversation_id,
-        image=np_image,
-        image_blob=image_blob,
+        images=np_images if np_images else None,
+        image_blobs=image_blobs if image_blobs else None,
     )
 
     # 首次对话自动设置标题
@@ -192,21 +193,22 @@ def delete_conversation_endpoint(
 async def chat_send_stream(
     message: str = Query(..., description="用户输入文本"),
     conversation_id: int | None = Query(None),
-    image: UploadFile | None = File(None),
+    images: list[UploadFile] = File(default_factory=list),
     user: dict = Depends(get_current_user),
 ):
     """SSE 流式问答 — 通过 asyncio.Queue 实现真正的实时 CoT 推送。"""
 
-    np_image = None
-    image_blob = None
-    if image is not None:
-        content = await image.read()
+    np_images = []
+    image_blobs = []
+    for img in images:
+        content = await img.read()
         if not content:
-            raise HTTPException(status_code=400, detail="上传的图片为空")
-        np_image = decode_image(content)
-        if np_image is None:
-            raise HTTPException(status_code=400, detail="无法解码图片")
-        image_blob = content
+            raise HTTPException(status_code=400, detail=f"图片 '{img.filename}' 为空")
+        np_img = decode_image(content)
+        if np_img is None:
+            raise HTTPException(status_code=400, detail=f"无法解码图片 '{img.filename}'")
+        np_images.append(np_img)
+        image_blobs.append(content)
 
     if conversation_id is not None:
         from db import SessionLocal, get_conversation
@@ -245,8 +247,8 @@ async def chat_send_stream(
                     conversation_id=conversation_id,
                     message=message,
                     db=db,
-                    image=np_image,
-                    image_blob=image_blob,
+                    images=np_images if np_images else None,
+                    image_blobs=image_blobs if image_blobs else None,
                     on_step=_on_step,
                 )
             )

@@ -18,6 +18,7 @@ import json
 import os
 import time
 from datetime import datetime, timezone
+from collections.abc import Callable
 from typing import Any
 
 from agent.memory_manager import MemoryManager
@@ -69,15 +70,15 @@ generate_report 会启动本地 Report Agent 生成完整报告，耗时较长�
 # ── Message 构建辅助函数 ──────────────────────────────────
 
 
-def _make_user_message(text: str, has_image: bool = False) -> dict:
+def _make_user_message(text: str, image_count: int = 0) -> dict:
     """构建发送给 LLM 的用户消息。"""
-    if has_image:
-        content = (
-            f"[用户已上传建筑图片，你可以调用 CV 工具来分析图片]\n\n{text}"
-        )
+    if image_count == 1:
+        prefix = "[用户已上传 1 张建筑图片，你可以调用 CV 工具来分析图片]\n\n"
+    elif image_count > 1:
+        prefix = f"[用户已上传 {image_count} 张建筑图片，编号为 图1~图{image_count}。调用 CV 工具时可通过 image_indices 参数指定分析哪些图片，如 image_indices=[1] 只分析图1，不填则分析全部]\n\n"
     else:
-        content = text
-    return {"role": "user", "content": content}
+        prefix = ""
+    return {"role": "user", "content": f"{prefix}{text}"}
 
 
 def _history_to_messages(records: list) -> list[dict]:
@@ -152,11 +153,11 @@ class ManagerAgent:
         conversation_id: int,
         message: str,
         db: Any,
-        image=None,
-        image_blob: bytes | None = None,
+        images=None,
+        image_blobs: list[bytes] | None = None,
         recent_messages: list | None = None,
         memories: list | None = None,
-        on_step: callable | None = None,
+        on_step: Callable | None = None,
     ) -> dict:
         """执行一次完整的 Agent 对话轮次。
 
@@ -165,8 +166,8 @@ class ManagerAgent:
             conversation_id: 对话会话 ID
             message: 用户输入文本
             db: SQLAlchemy Session
-            image: 可选的 numpy 图像数组
-            image_blob: JPEG 字节，持久化到 chat_images 表
+            images: 可选的 numpy 图像数组列表（多图支持）
+            image_blobs: JPEG 字节列表，与 images 一一对应
             recent_messages: 最近历史消息；为 None 时由 build_context 自动拉取
             memories: 长期记忆；为 None 时由 build_context 自动拉取
 
@@ -201,28 +202,30 @@ class ManagerAgent:
         if recent_messages:
             messages.extend(_history_to_messages(recent_messages))
 
-        messages.append(_make_user_message(message, has_image=image is not None))
+        image_count = len(images) if images else 0
+        messages.append(_make_user_message(message, image_count=image_count))
 
         # 预创建 ChatImage，tool 执行时可直接关联缺陷
-        _chat_image_id: int | None = None
+        _chat_image_ids: list[int] = []
         _user_msg_id: int | None = None
-        if image_blob:
+        if image_blobs:
             from db.models import ChatMessage as CM, ChatImage as CI
             _user_msg = CM(
                 conversation_id=conversation_id,
                 role="user",
                 content=message,
-                metadata_={"has_image": True},
+                metadata_={"has_image": True, "image_count": len(image_blobs)},
             )
             db.add(_user_msg)
             db.flush()
             _user_msg_id = _user_msg.id
-            _pre_img = CI(message_id=_user_msg.id, data=image_blob)
-            db.add(_pre_img)
-            db.flush()
-            _chat_image_id = _pre_img.id
-            # 将 chat_image_id 写回消息 metadata，供跨轮次恢复
-            _user_msg.metadata_["chat_image_id"] = _chat_image_id
+            _chat_image_ids = []
+            for blob in image_blobs:
+                _pre_img = CI(message_id=_user_msg.id, data=blob)
+                db.add(_pre_img)
+                db.flush()
+                _chat_image_ids.append(_pre_img.id)
+            _user_msg.metadata_["chat_image_ids"] = _chat_image_ids
             db.flush()
 
         # 3. ReAct 循环
@@ -260,8 +263,8 @@ class ManagerAgent:
                     if on_step:
                         on_step({"type": "tool", "name": fn_name, "status": "running"})
                     result = execute_tool(
-                        self.tools, fn_name, image=image, db=db,
-                        chat_image_id=_chat_image_id, user_id=str(user_id), **fn_args
+                        self.tools, fn_name, images=images, db=db,
+                        chat_image_ids=_chat_image_ids, user_id=str(user_id), **fn_args
                     )
                     elapsed_ms = round((time.perf_counter() - t_start) * 1000)
                     if on_step:
@@ -296,7 +299,6 @@ class ManagerAgent:
 
         # 4. 持久化短期记忆，并提炼长期记忆
         self._save_turn(db, conversation_id, message, final_text, tool_log,
-                        image_blob=None if _user_msg_id else image_blob,
                         user_msg_id=_user_msg_id)
         self._extract_memory(db, user_id, conversation_id)
 
@@ -316,19 +318,18 @@ class ManagerAgent:
         user_msg: str,
         assistant_msg: str,
         tool_log: list[dict],
-        user_image_blob: bytes | None = None,
         user_msg_id: int | None = None,
     ) -> None:
         """保存本轮对话到 ChatMessage 表。user_msg_id 非空时跳过用户消息创建。"""
-        from db.chat_crud import add_message
-
         if user_msg_id:
             # 用户消息+图片已预创建，仅更新 conversation 元数据
             from db.chat_crud import update_conversation_title
             update_conversation_title(db, conversation_id)
         else:
-            add_message(db, conversation_id, "user", user_msg, image_blob=user_image_blob)
+            from db.chat_crud import add_message
+            add_message(db, conversation_id, "user", user_msg)
         if assistant_msg:
+            from db.chat_crud import add_message
             meta = {"tool_calls": tool_log} if tool_log else None
             add_message(
                 db,
