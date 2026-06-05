@@ -286,8 +286,15 @@ class InspectionSkill:
             )
             if resp.status_code == 200:
                 data = resp.json()
-                print(f"[InspectionSkill] Report Agent 生成成功 ({data.get('elapsed_seconds', 0):.1f}s)")
-                return data["report"], annotated_b64_list
+                elapsed = data.get("elapsed_seconds", 0)
+                print(f"[InspectionSkill] Report Agent 生成成功 ({elapsed:.1f}s)")
+                # 标注图嵌入报告 — 图文并茂
+                img_tags = "".join(
+                    f'<img src="data:image/jpeg;base64,{b64}" style="max-width:400px;border:1px solid #ddd;border-radius:8px;margin:8px 0">'
+                    for b64 in annotated_b64_list
+                )
+                report = f"{img_tags}\n\n{data['report']}"
+                return report, annotated_b64_list
         except Exception as e:
             print(f"[InspectionSkill] Report Agent 不可用: {e}")
 

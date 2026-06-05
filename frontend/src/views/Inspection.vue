@@ -97,11 +97,15 @@ function viewImage(src) { previewSrc.value = src; previewVisible.value = true }
 
 function formatReport(text) {
   if (!text) return ''
-  return text
+  // 保留 <img> 标签，其他 HTML 实体转义
+  const imgTags = []
+  const safe = text.replace(/<img[^>]+>/gi, (m) => { imgTags.push(m); return `__IMG_${imgTags.length - 1}__` })
+  const escaped = safe
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/__IMG_(\d+)__/g, (_, i) => imgTags[+i])
     .replace(/\n\n/g, '</p><p>')
     .replace(/\n/g, '<br>')
-    .replace(/^/, '<p>').replace(/$/, '</p>')
+  return `<p>${escaped}</p>`
 }
 
 async function runInspection() {

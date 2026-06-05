@@ -16,7 +16,6 @@ Report Agent:            本地 Qwen2.5-VL       — generate_report 工具调�
 
 import json
 import os
-import re
 import time
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -214,11 +213,7 @@ class ManagerAgent:
 
                 # 本轮调了 generate_report → 终止 ReAct 循环
                 if _report_result is not None:
-                    final_text = _report_result
-                    # 从完整报告中提取标注图并前置到开头
-                    imgs = re.findall(r'<img[^>]+src="data:image[^"]+"[^>]*>', _report_result)
-                    if imgs:
-                        final_text = "\n".join(imgs) + "\n\n" + _report_result
+                    final_text = _report_result  # 图片已在 report.py 中前置
                     if on_step:
                         on_step({"type": "done", "rounds": len(tool_log)})
                     break
