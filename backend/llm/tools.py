@@ -366,8 +366,10 @@ class ReportAgentTool:
                 elapsed = data.get("elapsed_seconds", 0)
                 import re
                 report_text = data['report']
-                # 剥离模型可能输出的残缺 Markdown/base64 图片
-                report_text = re.sub(r'!\[.*?\]\(data:image[^)]*\)', '', report_text)
+                # 剥离模型输出的任何 base64 数据（完整或截断均处理）
+                report_text = re.sub(r'!\[.*?\]\(data:image[^)]*\)?', '', report_text)
+                report_text = re.sub(r'<img[^>]*data:image[^>]*>', '', report_text)
+                report_text = re.sub(r'data:image\S+', '', report_text)
                 # [图N] 标记 → 对应标注图 <img>
                 def _insert_img(m):
                     n = int(m.group(1)) - 1

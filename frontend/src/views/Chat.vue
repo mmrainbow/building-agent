@@ -130,13 +130,19 @@ async function delConv() {
   conversations.value = conversations.value.filter(c => c.id !== currentId.value)
   newConv()
 }
-// 将 Markdown 图片语法转为 HTML img 标签
+// 将 Markdown 图片语法转为 HTML img 标签，同时清理模型幻觉产生的无效 base64
 function renderMarkdown(text) {
   if (!text) return text
-  return text.replace(
+  // 先清理无闭合括号或重复字符的幻觉 base64（如 /9j/9j/9j/...）
+  let cleaned = text.replace(/!\[.*?\]\(data:image[^)]*(?:\))?/g, '')
+  cleaned = cleaned.replace(/<img[^>]*data:image[^>]*>/gi, '')
+  cleaned = cleaned.replace(/data:image\S+/g, '')
+  // 如果有残留的有效 Markdown 图片，转为 HTML
+  cleaned = cleaned.replace(
     /!\[([^\]]*)\]\((data:image[^)]+)\)/g,
     '<img src="$2" alt="$1" style="max-width:100%;border-radius:8px;margin:8px 0">'
   )
+  return cleaned
 }
 // 判断内容是否含 HTML/图片需要 v-html 渲染
 function isHtmlContent(text) {

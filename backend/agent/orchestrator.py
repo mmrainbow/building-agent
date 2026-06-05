@@ -16,13 +16,19 @@ Report Agent:            本地 Qwen2.5-VL       — generate_report 工具调�
 
 import json
 import os
+import re
 import time
-from datetime import datetime, timezone
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Any
 
 from agent.memory_manager import MemoryManager
 from llm.tools import execute_tool, get_tool_schemas
+
+
+def _strip_base64_for_llm(text: str) -> str:
+    """移除 base64 图片数据避免撑爆 LLM 上下文。"""
+    return re.sub(r'data:image[^"\')\s]+', 'data:image/...', text)
 
 # ── System Prompt ─────────────────────────────────────────
 
@@ -275,7 +281,7 @@ class ManagerAgent:
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc["id"],
-                        "content": result[:2000],
+                        "content": _strip_base64_for_llm(result[:3000]),
                     })
             else:
                 # LLM 生成最终文本回复
@@ -292,7 +298,15 @@ class ManagerAgent:
             final_resp = self.llm.chat(messages)
             final_text = final_resp.get("content") or "无法生成报告。"
 
-        # 4. 持久化短期记忆，并提炼长期记忆
+        # 4. 从 generate_report 工具结果中提取标注图注入到最终回复
+        for tl in tool_log:
+            if tl["name"] == "generate_report":
+                imgs = re.findall(r'<img[^>]+src="data:image[^"]+"[^>]*>', tl["result"])
+                if imgs:
+                    final_text = "\n".join(imgs) + "\n\n" + final_text
+                break
+
+        # 5. 持久化短期记忆，并提炼长期记忆
         self._save_turn(db, conversation_id, message, final_text, tool_log,
                         user_msg_id=_user_msg_id)
         self._extract_memory(db, user_id, conversation_id)

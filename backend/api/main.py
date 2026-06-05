@@ -36,13 +36,13 @@ from db import (
     get_db,
     get_record_detail,
     get_user_records,
-    init_db,
 )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    from services.auth_service import bootstrap_data
+    bootstrap_data()
     yield
 
 

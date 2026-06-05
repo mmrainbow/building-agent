@@ -6,31 +6,24 @@ from db.models import User, UserRole
 
 from .constants import TEXT
 
-INIT_ADMIN_USERNAME = os.getenv("INIT_ADMIN_USERNAME", "admin")
-INIT_ADMIN_PASSWORD = os.getenv("INIT_ADMIN_PASSWORD")
+INIT_USERNAME = os.getenv("INIT_USERNAME", "user123")
+INIT_PASSWORD = os.getenv("INIT_PASSWORD", "user123")
 
 
 def bootstrap_data() -> None:
     init_db()
     db = SessionLocal()
     try:
-        has_user = db.query(User).first() is not None
-        if has_user:
-            return
-        if not INIT_ADMIN_PASSWORD:
-            print(
-                "未检测到用户且未设置 INIT_ADMIN_PASSWORD，"
-                "已跳过默认管理员创建。"
-            )
+        if db.query(User).first() is not None:
             return
         user = create_user(
             db=db,
-            username=INIT_ADMIN_USERNAME,
-            password=INIT_ADMIN_PASSWORD,
-            role=UserRole.admin,
+            username=INIT_USERNAME,
+            password=INIT_PASSWORD,
+            role=UserRole.user,
         )
         if user:
-            print(f"已创建初始管理员账户: {INIT_ADMIN_USERNAME}")
+            print(f"已创建初始用户: {INIT_USERNAME} / {INIT_PASSWORD}")
     finally:
         db.close()
 
