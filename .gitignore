@@ -18,8 +18,8 @@ frontend/dist/
 backend/.env
 backend/model_weights/*.pt
 backend/model_weights/*.pth
-backend/qwen2_5_vl_3b_building_merged/*
-!backend/qwen2_5_vl_3b_building_merged/README.md
+backend/qwen2_5_vl_3b_building_merged/*.safetensors
+backend/qwen2_5_vl_3b_building_merged/model.safetensors.index.json
 backend/chroma_db/
 backend/rag_data/
 backend/chat_images/
