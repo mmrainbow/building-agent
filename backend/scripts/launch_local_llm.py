@@ -136,6 +136,7 @@ def build_app():
                 image_bytes = base64.b64decode(b64)
                 tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
                 tmp.write(image_bytes)
+                tmp.close()  # Windows 必须关句柄才能后续删除
                 tmp_paths.append(tmp.name)
 
             client = get_local_vl_client()
@@ -156,6 +157,7 @@ def build_app():
                     floor=req.floor,
                     has_extension=req.has_extension,
                     defects=req.defects,
+                    image_count=1,
                 )
             elapsed = time.time() - started_at
             return ReportResponse(report=report, elapsed_seconds=round(elapsed, 2))

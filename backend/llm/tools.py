@@ -359,16 +359,30 @@ class ReportAgentTool:
             resp = __import__("requests").post(
                 f"{self.url}/v1/report",
                 json=payload,
-                timeout=120,
+                timeout=300,
             )
             if resp.status_code == 200:
                 data = resp.json()
                 elapsed = data.get("elapsed_seconds", 0)
-                img_tags = "".join(
-                    f'<img src="data:image/jpeg;base64,{b64}" style="max-width:400px;border:1px solid #ddd;margin:8px 0">'
-                    for b64 in images_b64
-                )
-                return f"{img_tags}\n\n📋 **专业巡检报告** (生成耗时 {elapsed:.1f}s):\n\n{data['report']}"
+                import re
+                report_text = data['report']
+                # 剥离模型可能输出的残缺 Markdown/base64 图片
+                report_text = re.sub(r'!\[.*?\]\(data:image[^)]*\)', '', report_text)
+                # [图N] 标记 → 对应标注图 <img>
+                def _insert_img(m):
+                    n = int(m.group(1)) - 1
+                    if 0 <= n < len(images_b64):
+                        return f'<img src="data:image/jpeg;base64,{images_b64[n]}" style="max-width:400px;border:1px solid #ddd;border-radius:8px;margin:8px 0">'
+                    return m.group(0)
+                report_text = re.sub(r'\[图(\d+)\]', _insert_img, report_text)
+                # 如果模型没放任何 [图N] 标记，在开头展示所有标注图
+                if not re.search(r'\[图\d+\]', data['report']):
+                    img_tags = "".join(
+                        f'<img src="data:image/jpeg;base64,{b64}" style="max-width:400px;border:1px solid #ddd;border-radius:8px;margin:8px 0">'
+                        for b64 in images_b64
+                    )
+                    report_text = f"{img_tags}\n\n{report_text}"
+                return f"📋 **专业巡检报告** (生成耗时 {elapsed:.1f}s):\n\n{report_text.strip() or data['report']}"
             return f"Report Agent 调用失败: HTTP {resp.status_code}"
         except Exception as e:
             return f"Report Agent 不可达 ({self.url}): {e}"

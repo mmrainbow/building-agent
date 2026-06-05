@@ -99,7 +99,7 @@ async function switchConv(id) {
       const msg = {
         role: m.role,
         content: m.content || '',
-        html: m.role === 'assistant' && /<img|<div|<pre/i.test(m.content || '') ? m.content : null,
+        html: m.role === 'assistant' && isHtmlContent(m.content) ? renderMarkdown(m.content) : null,
         images: meta.has_image
           ? Array.from({length: meta.image_count || 1}, (_, i) => `/api/chat/images/${m.id}?idx=${i}`)
           : null,
@@ -130,6 +130,19 @@ async function delConv() {
   conversations.value = conversations.value.filter(c => c.id !== currentId.value)
   newConv()
 }
+// 将 Markdown 图片语法转为 HTML img 标签
+function renderMarkdown(text) {
+  if (!text) return text
+  return text.replace(
+    /!\[([^\]]*)\]\((data:image[^)]+)\)/g,
+    '<img src="$2" alt="$1" style="max-width:100%;border-radius:8px;margin:8px 0">'
+  )
+}
+// 判断内容是否含 HTML/图片需要 v-html 渲染
+function isHtmlContent(text) {
+  return /<img|<div|<pre|!\[/i.test(text || '')
+}
+
 function onFileChange(e) {
   for (const f of e.target.files) {
     if (f.type.startsWith('image/')) {
@@ -170,7 +183,7 @@ async function send() {
       messages.value[aiIdx] = {
         role: 'assistant',
         content: result.response,
-        html: /<img|<div|<pre/i.test(result.response || '') ? result.response : null,
+        html: isHtmlContent(result.response) ? renderMarkdown(result.response) : null,
       }
       sending.value = false
       chatAPI.listConversations().then(c => conversations.value = c)

@@ -232,6 +232,33 @@ async def chat_send_stream(
         np_images.append(np_img)
         image_blobs.append(content)
 
+    # 如果没有上传新图片，尝试从对话历史中加载
+    if not np_images and conversation_id is not None:
+        from db import SessionLocal as SL2
+        from db.models import ChatMessage
+        _db = SL2()
+        try:
+            _msgs = (
+                _db.query(ChatMessage)
+                .filter(
+                    ChatMessage.conversation_id == conversation_id,
+                    ChatMessage.role == "user",
+                    ChatMessage.metadata_.contains("has_image"),
+                )
+                .order_by(ChatMessage.created_at.asc())
+                .all()
+            )
+            for _m in _msgs:
+                _imgs = _m.images or []
+                for _img in _imgs:
+                    _blob = _img.data
+                    _np = decode_image(_blob)
+                    if _np is not None:
+                        np_images.append(_np)
+                        image_blobs.append(_blob)
+        finally:
+            _db.close()
+
     if conversation_id is not None:
         from db import SessionLocal, get_conversation
         db = SessionLocal()

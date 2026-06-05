@@ -61,22 +61,31 @@ def build_inspection_prompt(
     floor: str,
     has_extension: str,
     defects: list[dict[str, Any]],
+    image_count: int = 1,
 ) -> str:
-    return f"""你是住建外立面巡检报告助手，请结合图像和结构化检测结果生成中文巡检报告。
-
-结构化检测结果：
-- 材质：{material or "Unknown"}
-- 楼层：{floor or "Unknown"}
-- 加层：{has_extension or "Unknown"}
-- 隐患：
-{_format_defects(defects)}
-
-重要约束：
-1. 隐患 area 是图像像素面积 px，只能用于相对大小参考，禁止换算为平方米或平方厘米。
-2. 不要编造检测结果之外的事实。
-3. 输出 120 到 220 字中文。
-4. 内容包含巡检结论、主要风险、处置建议。
-5. 不要输出标题、编号、Markdown，也不要使用分段标签。"""
+    lines = [
+        "你是住建外立面巡检报告助手，请结合图像和结构化检测结果生成中文巡检报告。",
+        "",
+        "结构化检测结果：",
+        f"- 材质：{material or 'Unknown'}",
+        f"- 楼层：{floor or 'Unknown'}",
+        f"- 加层：{has_extension or 'Unknown'}",
+        f"- 隐患：",
+        _format_defects(defects),
+        "",
+    ]
+    if image_count > 1:
+        lines.append(f"本次共 {image_count} 张图片。报告中如需引用图片，请在对应位置写入标记 [图N]（N 为图片编号）。例如'[图1] 显示建筑正面...'。")
+    lines.extend([
+        "",
+        "重要约束：",
+        "1. 隐患 area 是图像像素面积 px²，只能用于相对大小参考，禁止换算为平方米或平方厘米。",
+        "2. 不要编造检测结果之外的事实。",
+        "3. 输出 120 到 350 字中文。",
+        "4. 内容包含巡检结论、主要风险、处置建议。",
+        "5. 不要输出标题、Markdown 语法、base64 编码或 HTML 标签。",
+    ])
+    return "\n".join(lines)
 
 
 class LocalVLModelClient:
@@ -107,19 +116,11 @@ class LocalVLModelClient:
             max_pixels=self.max_pixels,
             trust_remote_code=True,
         )
-        try:
-            self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                self.model_path,
-                dtype=self.torch_dtype,
-                device_map=self.device_map,
-                trust_remote_code=True,
-            )
-        except Exception:
-            self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                self.model_path,
-                dtype=self.torch_dtype,
-                trust_remote_code=True,
-            ).to("cuda")
+        self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            self.model_path,
+            dtype=self.torch_dtype,
+            trust_remote_code=True,
+        ).to("cuda")
         self.model.eval()
 
     def generate(
@@ -146,7 +147,11 @@ class LocalVLModelClient:
     ) -> str:
         """多图生成 — 所有图片一起传给 VL 模型。"""
         self.load()
-        images = [Image.open(p).convert("RGB") for p in image_paths]
+        images = []
+        for p in image_paths:
+            img = Image.open(p)
+            img.load()  # 强制读完，Windows 需要释放文件句柄
+            images.append(img.convert("RGB"))
         content = []
         for img in images:
             content.append({"type": "image", "image": img})
@@ -247,8 +252,9 @@ class LocalVLModelClient:
         defect_text = "\n".join(defect_lines) if defect_lines else "无明显隐患"
 
         return (
-            f"你是住建外立面巡检报告助手。现有一栋建筑共 {image_count} 张不同角度照片，"
-            f"当前展示的是其中一张代表性正面图。请结合图像和以下所有图片的结构化检测结果生成中文巡检报告。\n\n"
+            f"你是住建外立面巡检报告助手。现有一栋建筑共 {image_count} 张不同角度照片。\n"
+            f"请结合图像和以下所有图片的结构化检测结果生成中文巡检报告。\n"
+            f"报告中引用图片时请使用标记 [图N]（N 为图片编号），如'[图1] 显示建筑正面...'。\n\n"
             f"结构化检测结果（共 {image_count} 张图片汇总）：\n"
             f"- 材质：{material or 'Unknown'}\n"
             f"- 楼层：{floor or 'Unknown'}\n"
@@ -258,9 +264,9 @@ class LocalVLModelClient:
             f"1. 隐患 area 是图像像素面积 px²，只能用于相对大小参考，禁止换算为平方米或平方厘米。\n"
             f"2. 不要编造检测结果之外的事实。\n"
             f"3. 输出 200 到 350 字中文。\n"
-            f"4. 内容包含：检测概况(图片数+建筑概况) → 逐图分析(引用'图1''图2'等编号) → 综合评定 → 处理建议。\n"
+            f"4. 内容包含：检测概况 → 逐图分析 → 综合评定 → 处理建议。\n"
             f"5. 每个隐患描述必须标注来源图片编号。\n"
-            f"6. 不要输出标题、Markdown 标记。"
+            f"6. 不要输出标题、Markdown 标记、base64 编码或 HTML 标签。"
         )
 
     def generate_report(
@@ -270,8 +276,9 @@ class LocalVLModelClient:
         floor: str,
         has_extension: str,
         defects: list[dict[str, Any]],
+        image_count: int = 1,
     ) -> str:
-        prompt = build_inspection_prompt(material, floor, has_extension, defects)
+        prompt = build_inspection_prompt(material, floor, has_extension, defects, image_count)
         return self.generate(image_path=image_path, prompt=prompt)
 
 
