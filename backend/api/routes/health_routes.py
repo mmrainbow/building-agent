@@ -60,8 +60,11 @@ def health():
 
 
 @router.get("/agent/status")
-def agent_status(user: dict = Depends(get_current_user)):
-    """Agent 监控: Manager / Memory / Report 三 Agent 状态。"""
+def agent_status(
+    conversation_id: int | None = None,
+    user: dict = Depends(get_current_user),
+):
+    """Agent 监控: Manager / Memory / Report 三 Agent 状态。传入 conversation_id 则只统计该对话。"""
     import os
     import requests as req
 
@@ -74,18 +77,20 @@ def agent_status(user: dict = Depends(get_current_user)):
         pass
 
     from db import SessionLocal, get_recent_messages
-    from db.models import Conversation
     db = SessionLocal()
     try:
-        conv = db.query(Conversation).order_by(Conversation.updated_at.desc()).first()
-        if conv:
-            msgs = get_recent_messages(db, conv.id, limit=50)
-            total_chars = sum(len(getattr(m, "content", "") or "") for m in msgs)
+        if conversation_id:
+            msgs = get_recent_messages(db, conversation_id, limit=50)
         else:
-            total_chars = 0
+            from db.models import Conversation
+            conv = db.query(Conversation).filter(
+                Conversation.title != "__inspection__"
+            ).order_by(Conversation.updated_at.desc()).first()
+            msgs = get_recent_messages(db, conv.id, limit=50) if conv else []
+        total_chars = sum(len(getattr(m, "content", "") or "") for m in msgs)
     finally:
         db.close()
-    threshold = int(os.getenv("MEMORY_EXTRACT_THRESHOLD", "6000"))
+    threshold = int(os.getenv("MEMORY_EXTRACT_THRESHOLD", "60000"))
 
     return {
         "manager": {"status": "online", "model": os.getenv("LLM_MODEL", "qwen3.6-flash")},

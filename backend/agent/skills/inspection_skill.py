@@ -152,9 +152,18 @@ class InspectionSkill:
         _, buf = cv2.imencode(".jpg", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
         jpeg_bytes = buf.tobytes()
 
-        # 创建 ChatMessage + ChatImage（图片在对话中可见）
-        # conversation_id 暂不关联（非对话路径），后续可补
-        msg = ChatMessage(role="user", content=f"[巡检图片 {len(record.images or []) + 1}]")
+        # 创建或复用巡检专用 Conversation（__inspection__ 前缀会被聊天列表过滤）
+        from db.models import Conversation
+        conv = db.query(Conversation).filter(
+            Conversation.user_id == record.user_id,
+            Conversation.title == "__inspection__",
+        ).first()
+        if conv is None:
+            conv = Conversation(user_id=record.user_id, title="图像巡检")
+            db.add(conv)
+            db.flush()
+
+        msg = ChatMessage(conversation_id=conv.id, role="user", content=f"[巡检图片 {len(record.images or []) + 1}]")
         db.add(msg)
         db.flush()
 

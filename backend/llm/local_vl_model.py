@@ -67,9 +67,8 @@ def build_inspection_prompt(
     ext = has_extension or "Unknown"
 
     return (
-        f"你是住建外立面巡检报告助手。现有一栋建筑共 {image_count} 张不同角度照片。\n"
-        f"请结合图像和以下所有图片的结构化检测结果生成中文巡检报告。\n"
-        f"报告中引用图片时请使用标记 [图N]（N 为图片编号），如'[图1] 显示建筑正面...'。\n\n"
+        f"你是住建外立面巡检报告助手。现有一栋建筑共 {image_count} 张不同角度照片（标注图已附在报告前面）。\n"
+        f"请结合图像和以下结构化检测结果生成中文巡检报告。\n\n"
         f"结构化检测结果（共 {image_count} 张图片汇总）：\n"
         f"- 材质：{mat}\n"
         f"- 楼层：{flr}\n"
@@ -80,8 +79,7 @@ def build_inspection_prompt(
         f"2. 不要编造检测结果之外的事实。\n"
         f"3. 输出 200 到 350 字中文。\n"
         f"4. 内容包含：检测概况 → 逐图分析 → 综合评定 → 处理建议。\n"
-        f"5. 每个隐患描述必须标注来源图片编号。\n"
-        f"6. 不要输出标题、Markdown 标记、base64 编码或 HTML 标签。"
+        f"5. 不要输出标题、Markdown 标记、base64 编码或 HTML 标签。"
     )
 
 
@@ -117,10 +115,13 @@ class LocalVLModelClient:
         )
         self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             self.model_path,
-            torch_dtype=self.torch_dtype if self.torch_dtype != "auto" else torch.float16,
-            device_map=self.device_map,
+            torch_dtype=torch.float16,
             trust_remote_code=True,
-        )
+        ).to("cuda")
+        # Qwen2.5-VL 的 tie_word_embeddings 在加载后被 __init__ 覆盖为 False，
+        # 导致 lm_head 随机初始化。手动从 input_embeddings 复制权重修复。
+        in_emb = self.model.get_input_embeddings()
+        self.model.lm_head.weight.data.copy_(in_emb.weight.data)
         self.model.eval()
 
     def generate_multi(

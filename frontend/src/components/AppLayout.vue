@@ -12,8 +12,7 @@
         <el-menu router :default-active="route.path" class="side-menu">
           <el-menu-item index="/chat"><el-icon><ChatDotSquare /></el-icon> 智能问答</el-menu-item>
           <el-menu-item index="/inspection"><el-icon><Picture /></el-icon> 图像巡检</el-menu-item>
-          <el-menu-item index="/history"><el-icon><Document /></el-icon> 历史记录</el-menu-item>
-          <el-menu-item index="/monitor"><el-icon><Monitor /></el-icon> Agent 监控</el-menu-item>
+          <el-menu-item index="/history"><el-icon><Document /></el-icon> 巡检记录</el-menu-item>
         </el-menu>
       </el-aside>
       <el-main class="app-main">

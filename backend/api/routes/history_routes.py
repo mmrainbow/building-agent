@@ -27,7 +27,7 @@ def _record_to_dict(record) -> dict:
         materials.append(img.material or "")
         floors.append(img.floor or "")
         extensions.append(img.has_extension or "")
-        for defect in (img.defects or []):
+        for defect in ((img.chat_image.defects if img.chat_image else []) or []):
             all_defects.append({
                 "type": defect.defect_type,
                 "area": defect.area,

@@ -64,7 +64,7 @@ class ReportAgentTool:
                 _, buf = __import__("cv2").imencode(".jpg", img)
                 images_b64.append(base64.b64encode(buf.tobytes()).decode("utf-8"))
 
-        print(f"  发送到 Report Agent: {len(images_b64)} 张图片, {len(all_defects)} 条缺陷, material={material!r}, floor={floor!r}, has_extension={has_extension!r}")
+        print(f"  发送到 Report Agent: {len(images_b64)} 张图片, {len(all_defects)} 条隐患, material={material!r}, floor={floor!r}, has_extension={has_extension!r}")
 
         _last_defects_cache.clear()
 
@@ -87,16 +87,12 @@ class ReportAgentTool:
                 data = resp.json()
                 elapsed = data.get("elapsed_seconds", 0)
                 report_text = data['report']
+                # 剥离模型可能幻觉输出的 base64 / HTML 碎片
                 report_text = re.sub(r'!\[.*?\]\(data:image[^)]*\)?', '', report_text)
                 report_text = re.sub(r'<img[^>]*data:image[^>]*>', '', report_text)
                 report_text = re.sub(r'data:image\S+', '', report_text)
-                def _insert_img(m):
-                    n = int(m.group(1)) - 1
-                    if 0 <= n < len(images_b64):
-                        return f'<img src="data:image/jpeg;base64,{images_b64[n]}" style="max-width:400px;border:1px solid #ddd;border-radius:8px;margin:8px 0">'
-                    return m.group(0)
-                report_text = re.sub(r'\[图(\d+)\]', _insert_img, report_text)
-                if not re.search(r'\[图\d+\]', data['report']):
+                # 标注图前置 — 不依赖 LLM 输出标记，直接展示
+                if images_b64:
                     img_tags = "".join(
                         f'<img src="data:image/jpeg;base64,{b64}" style="max-width:400px;border:1px solid #ddd;border-radius:8px;margin:8px 0">'
                         for b64 in images_b64

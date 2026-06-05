@@ -34,6 +34,7 @@ def get_user_conversations(
     return (
         db.query(Conversation)
         .filter(Conversation.user_id == user_id)
+        .filter(Conversation.title != "__inspection__")
         .order_by(Conversation.updated_at.desc())
         .offset(offset)
         .limit(limit)

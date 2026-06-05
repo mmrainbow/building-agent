@@ -85,7 +85,7 @@ def _get_annotated_images(db, record, skill) -> list[str]:
             if img is not None:
                 img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                 defects = [{"id": i + 1, "type": d.defect_type, "area": d.area, "box": d.box_coords}
-                           for i, d in enumerate(img_entry.defects or [])]
+                           for i, d in enumerate((img_entry.chat_image.defects if img_entry.chat_image else []) or [])]
                 annotated = draw_defects(img_rgb, defects)
                 _, buf = cv2.imencode(".jpg", cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR))
                 results.append(base64.b64encode(buf.tobytes()).decode("utf-8"))

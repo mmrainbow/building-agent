@@ -16,6 +16,20 @@
 
     <!-- 右侧聊天区 -->
     <div class="chat-main">
+      <!-- Agent 状态条 -->
+      <div class="agent-bar" v-if="agentStatus">
+        <span class="agent-dot" :class="agentStatus.manager?.status"></span> 🤖 Manager
+        <span class="agent-sep">|</span>
+        <span class="agent-dot" :class="agentStatus.report?.status"></span> 🤖 Report
+        <span class="agent-sep">|</span>
+        <svg class="mem-ring" width="16" height="16" viewBox="0 0 16 16">
+          <circle cx="8" cy="8" r="6" fill="none" stroke="#e8e2d8" stroke-width="2"/>
+          <circle cx="8" cy="8" r="6" fill="none" :stroke="memColor" stroke-width="2"
+            :stroke-dasharray="memDasharray" stroke-dashoffset="9.4" stroke-linecap="round"
+            transform="rotate(-90 8 8)"/>
+        </svg>
+        Memory {{ agentStatus.memory?.pct || 0 }}%
+      </div>
       <div class="chat-messages" ref="chatBox">
         <div v-if="!messages.length && !sending" class="chat-placeholder">
           🏗 上传建筑图片 + 输入问题开始巡检
@@ -68,8 +82,9 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted } from 'vue'
+import { computed, ref, nextTick, onMounted } from 'vue'
 import { chatAPI } from '../api/chat'
+import client from '../api/index'
 import CoTPanel from '../components/CoTPanel.vue'
 
 const conversations = ref([])
@@ -82,15 +97,35 @@ const imgFiles = ref([])
 const imgPreviews = ref([])
 const chatBox = ref(null)
 
+const agentStatus = ref(null)
+const memColor = computed(() => {
+  const pct = agentStatus.value?.memory?.pct || 0
+  return pct > 80 ? '#c97b7b' : pct > 50 ? '#d4a574' : '#7eb89e'
+})
+const memDasharray = computed(() => {
+  const pct = agentStatus.value?.memory?.pct || 0
+  const len = 2 * Math.PI * 6  // 圆环周长
+  const filled = (pct / 100) * len
+  return `${filled} ${len - filled}`
+})
+async function fetchAgentStatus() {
+  if (!currentId.value) {
+    agentStatus.value = { manager: { status: 'online' }, report: { status: 'online' }, memory: { pct: 0, threshold: 60000, total_chars: 0 } }
+    return
+  }
+  try { const r = await client.get('/agent/status', { params: { conversation_id: currentId.value } }); agentStatus.value = r.data } catch(e) {}
+}
+
 onMounted(async () => {
   try { conversations.value = await chatAPI.listConversations() } catch(e) {}
+  fetchAgentStatus()
 })
 
 async function newConv() {
-  currentId.value = null; messages.value = []; streamSteps.value = []
+  currentId.value = null; messages.value = []; streamSteps.value = []; fetchAgentStatus()
 }
 async function switchConv(id) {
-  currentId.value = id; streamSteps.value = []
+  currentId.value = id; streamSteps.value = []; fetchAgentStatus()
   try {
     const data = await chatAPI.getConversation(id)
     const msgs = []
@@ -193,6 +228,7 @@ async function send() {
       }
       sending.value = false
       chatAPI.listConversations().then(c => conversations.value = c)
+      fetchAgentStatus()
       nextTick(() => scrollBottom())
     },
     (err) => {
@@ -207,6 +243,30 @@ function scrollBottom() {
 </script>
 
 <style scoped>
+/* ── Agent 状态条 ── */
+.agent-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: #8a8278;
+  background: #faf8f4;
+  border-bottom: 1px solid #e8e2d8;
+  flex-shrink: 0;
+}
+.agent-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  background: #c5bdaf;
+}
+.agent-dot.online { background: #7eb89e; }
+.agent-dot.offline { background: #c97b7b; }
+.agent-sep { color: #e0d9ce; }
+.mem-ring { flex-shrink: 0; }
+.agent-mem { color: #b0a89e; font-size: 11px; margin-left: 2px; }
+
 /* ── 布局 ── */
 .chat-page {
   display: flex;
