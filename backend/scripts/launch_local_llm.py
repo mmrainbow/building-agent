@@ -38,7 +38,7 @@ MODEL_PATH = os.getenv(
 os.environ["LOCAL_VL_MODEL_PATH"] = MODEL_PATH
 os.environ["LOCAL_VL_MODEL_ENABLED"] = "true"
 
-from llm.local_vl_model import get_local_vl_client
+from llm.local_vl_model import build_inspection_prompt, get_local_vl_client
 
 
 def build_app():
@@ -120,14 +120,24 @@ def build_app():
             },
         )
 
+    _req_counter = [0]  # mutable counter
+
     @app.post("/v1/report", response_model=ReportResponse)
     def generate_report(req: ReportRequest):
         """Report Agent — 接收图片+结构化数据，所有图片一起传给 VL 模型。"""
+        _req_counter[0] += 1
+        req_id = _req_counter[0]
         started_at = time.time()
 
         images = req.images_base64 if req.images_base64 else ([req.image_base64] if req.image_base64 else [])
         if not images:
             return ReportResponse(report="错误: 未提供图片", elapsed_seconds=0)
+
+        # ── 打印输入 ──
+        print(f"\n{'='*60}")
+       
+        for d in req.defects:
+            print(f"    - 图{d.get('image_index','?')}: {d.get('type','?')} area={d.get('area',0):.0f}px²")
 
         # 解码所有图片 → 临时文件
         tmp_paths = []
@@ -140,26 +150,30 @@ def build_app():
                 tmp_paths.append(tmp.name)
 
             client = get_local_vl_client()
+            prompt = build_inspection_prompt(
+                material=req.material,
+                floor=req.floor,
+                has_extension=req.has_extension,
+                defects=req.defects,
+                image_count=len(images),
+            )
 
-            if len(images) > 1:
-                prompt = client._build_multi_image_prompt(
-                    image_count=len(images),
-                    material=req.material,
-                    floor=req.floor,
-                    has_extension=req.has_extension,
-                    defects=req.defects,
-                )
-                report = client.generate_multi(image_paths=tmp_paths, prompt=prompt)
-            else:
-                report = client.generate_report(
-                    image_path=tmp_paths[0],
-                    material=req.material,
-                    floor=req.floor,
-                    has_extension=req.has_extension,
-                    defects=req.defects,
-                    image_count=1,
-                )
+            print(f"  Prompt ({len(prompt)} 字符):")
+            print(f"  {'─'*54}")
+            for line in prompt.split("\n"):
+                print(f"  │ {line}")
+            print(f"  {'─'*54}")
+
+            report = client.generate_multi(image_paths=tmp_paths, prompt=prompt)
             elapsed = time.time() - started_at
+
+            print(f"  输出 ({len(report)} 字符, {elapsed:.1f}s):")
+            print(f"  {'─'*54}")
+            for line in report.split("\n"):
+                print(f"  │ {line}")
+            print(f"  {'─'*54}")
+            print(f"{'='*60}\n")
+
             return ReportResponse(report=report, elapsed_seconds=round(elapsed, 2))
         finally:
             for p in tmp_paths:

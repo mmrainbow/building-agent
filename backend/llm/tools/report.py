@@ -27,17 +27,23 @@ class ReportAgentTool:
 
         import base64
 
-        global _last_defects_cache
+        print(f"\n[ReportAgentTool] === generate_report 被调用 ===")
+        print(f"  LLM 传入参数: material={material!r}, floor={floor!r}, has_extension={has_extension!r}")
+        print(f"  images 数量: {len(images)}, image_indices: {image_indices}")
+        print(f"  _last_defects_cache 内容: { {k: f'{len(v)}条' for k, v in _last_defects_cache.items()} }")
 
         selected = _select_images(images, image_indices)
         if not selected:
             selected = [(i + 1, img) for i, img in enumerate(images)]
+        print(f"  实际处理图片: {[idx for idx, _ in selected]}")
 
         images_b64 = []
         all_defects = []
         for idx, img in selected:
             defects = _last_defects_cache.get(idx, [])
+            print(f"  图{idx}: cache defects={len(defects)}条 → ", end="")
             if defects:
+                print("画框 + 标注")
                 rendered = img.copy()
                 for d in defects:
                     box = d.get("box", [])
@@ -54,10 +60,13 @@ class ReportAgentTool:
                     d_copy["image_index"] = idx
                     all_defects.append(d_copy)
             else:
+                print("无标注，原图编码")
                 _, buf = __import__("cv2").imencode(".jpg", img)
                 images_b64.append(base64.b64encode(buf.tobytes()).decode("utf-8"))
 
-        _last_defects_cache = {}
+        print(f"  发送到 Report Agent: {len(images_b64)} 张图片, {len(all_defects)} 条缺陷, material={material!r}, floor={floor!r}, has_extension={has_extension!r}")
+
+        _last_defects_cache.clear()
 
         payload = {
             "images_base64": images_b64,
@@ -78,25 +87,25 @@ class ReportAgentTool:
                 data = resp.json()
                 elapsed = data.get("elapsed_seconds", 0)
                 report_text = data['report']
-                # 剥离模型输出的任何 base64 数据（完整或截断均处理）
                 report_text = re.sub(r'!\[.*?\]\(data:image[^)]*\)?', '', report_text)
                 report_text = re.sub(r'<img[^>]*data:image[^>]*>', '', report_text)
                 report_text = re.sub(r'data:image\S+', '', report_text)
-                # [图N] 标记 → 对应标注图 <img>
                 def _insert_img(m):
                     n = int(m.group(1)) - 1
                     if 0 <= n < len(images_b64):
                         return f'<img src="data:image/jpeg;base64,{images_b64[n]}" style="max-width:400px;border:1px solid #ddd;border-radius:8px;margin:8px 0">'
                     return m.group(0)
                 report_text = re.sub(r'\[图(\d+)\]', _insert_img, report_text)
-                # 如果模型没放任何 [图N] 标记，在开头展示所有标注图
                 if not re.search(r'\[图\d+\]', data['report']):
                     img_tags = "".join(
                         f'<img src="data:image/jpeg;base64,{b64}" style="max-width:400px;border:1px solid #ddd;border-radius:8px;margin:8px 0">'
                         for b64 in images_b64
                     )
                     report_text = f"{img_tags}\n\n{report_text}"
+                print(f"  Report Agent 返回: {len(data['report'])} 字符, 耗时 {elapsed:.1f}s\n")
                 return f"📋 **专业巡检报告** (生成耗时 {elapsed:.1f}s):\n\n{report_text.strip() or data['report']}"
+            print(f"  Report Agent HTTP {resp.status_code}\n")
             return f"Report Agent 调用失败: HTTP {resp.status_code}"
         except Exception as e:
+            print(f"  Report Agent 异常: {e}\n")
             return f"Report Agent 不可达 ({self.url}): {e}"

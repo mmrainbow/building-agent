@@ -2,14 +2,18 @@
   <div class="cot-panel" v-if="steps.length">
     <div class="cot-header" @click="expanded = !expanded">
       <span class="cot-toggle">{{ expanded ? '▼' : '▶' }}</span>
-      🧠 Manager Agent 思考过程
+      {{ headerLabel }}
       <span class="cot-count">({{ steps.length }} 步)</span>
     </div>
     <div v-if="expanded" class="cot-body">
       <div v-for="(s, i) in steps" :key="i" class="cot-step">
         <span v-if="s.type==='think'" class="cot-think">  💭 第{{ s.round }}轮: {{ s.content || '' }}</span>
-        <span v-else-if="s.type==='tool' && s.status==='running'" class="cot-tool-running">  🔧 {{ s.name }} 执行中...</span>
-        <span v-else-if="s.type==='tool' && s.status==='done'" class="cot-tool">  ✅ {{ s.name }} 完成{{ s.elapsed_ms ? ` (${s.elapsed_ms}ms)` : '' }}</span>
+        <span v-else-if="s.type==='tool' && s.status==='running'" class="cot-tool-running">
+          {{ s.name === 'generate_report' ? '📋 Report Agent' : '🔧 ' + s.name }} 执行中...
+        </span>
+        <span v-else-if="s.type==='tool' && s.status==='done'" class="cot-tool">
+          {{ s.name === 'generate_report' ? '📋 Report Agent' : '✅ ' + s.name }} 完成{{ s.elapsed_ms ? ` (${s.elapsed_ms}ms)` : '' }}
+        </span>
         <span v-else class="cot-done">  📝 共 {{ s.rounds }} 步 → 生成回答</span>
       </div>
     </div>
@@ -17,12 +21,20 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 const props = defineProps({
   steps: { type: Array, default: () => [] },
   defaultExpanded: { type: Boolean, default: true },
 })
 const expanded = ref(props.defaultExpanded)
+
+const headerLabel = computed(() => {
+  const hasReport = props.steps.some(s => s.name === 'generate_report')
+  const hasOtherTool = props.steps.some(s => s.type === 'tool' && s.name !== 'generate_report')
+  if (hasReport && hasOtherTool) return '🧠 Manager → 📋 Report Agent 协作过程'
+  if (hasReport) return '📋 Report Agent 生成报告'
+  return '🧠 Manager Agent 思考过程'
+})
 </script>
 
 <style scoped>

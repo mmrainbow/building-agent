@@ -176,6 +176,7 @@ class ManagerAgent:
                 }
                 messages.append(assistant_msg)
 
+                _report_result: str | None = None
                 for tc in resp["tool_calls"]:
                     fn_name = tc["function"]["name"]
                     try:
@@ -197,15 +198,30 @@ class ManagerAgent:
                     tool_log.append({
                         "name": fn_name,
                         "arguments": fn_args,
-                        "result": result[:1000],  # 截断，避免撑爆上下文
+                        "result": result[:1000],
                         "elapsed_ms": elapsed_ms,
                     })
 
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "content": strip_base64_for_llm(result[:3000]),
-                    })
+                    # generate_report 是终端工具 — 报告即最终答案，不回传给 LLM
+                    if fn_name == "generate_report":
+                        _report_result = result
+                    else:
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": strip_base64_for_llm(result[:3000]),
+                        })
+
+                # 本轮调了 generate_report → 终止 ReAct 循环
+                if _report_result is not None:
+                    final_text = _report_result
+                    # 从完整报告中提取标注图并前置到开头
+                    imgs = re.findall(r'<img[^>]+src="data:image[^"]+"[^>]*>', _report_result)
+                    if imgs:
+                        final_text = "\n".join(imgs) + "\n\n" + _report_result
+                    if on_step:
+                        on_step({"type": "done", "rounds": len(tool_log)})
+                    break
             else:
                 # LLM 生成最终文本回复
                 final_text = resp.get("content") or ""
@@ -220,14 +236,6 @@ class ManagerAgent:
             })
             final_resp = self.llm.chat(messages)
             final_text = final_resp.get("content") or "无法生成报告。"
-
-        # 4. 从 generate_report 工具结果中提取标注图注入到最终回复
-        for tl in tool_log:
-            if tl["name"] == "generate_report":
-                imgs = re.findall(r'<img[^>]+src="data:image[^"]+"[^>]*>', tl["result"])
-                if imgs:
-                    final_text = "\n".join(imgs) + "\n\n" + final_text
-                break
 
         # 5. 持久化短期记忆，并提炼长期记忆
         self._save_turn(db, conversation_id, message, final_text, tool_log,

@@ -83,8 +83,7 @@ class DefectToolWrapper(CVToolWrapper):
     """隐患检测专用 — 输出中文类型名和面积，同步入库到 Defect 表。"""
 
     def execute(self, images=None, image_indices=None, db=None, chat_image_ids=None, **kwargs) -> str:
-        global _last_defects_cache
-        _last_defects_cache = {}
+        _last_defects_cache.clear()
         if not images:
             return "错误：需要图片输入，但当前未提供图片。"
         self._ensure_loaded()
