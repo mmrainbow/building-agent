@@ -103,10 +103,15 @@ class LocalVLModelClient:
         torch_dtype: str | None = None,
         max_pixels: int | None = None,
     ):
-        self.model_path = str(Path(model_path or LOCAL_VL_MODEL_PATH))
-        self.device_map = device_map or LOCAL_VL_DEVICE_MAP
-        self.torch_dtype = _resolve_dtype(torch_dtype or LOCAL_VL_TORCH_DTYPE)
-        self.max_pixels = max_pixels or LOCAL_VL_MAX_PIXELS
+        current_model_path = os.getenv("LOCAL_VL_MODEL_PATH", LOCAL_VL_MODEL_PATH)
+        current_device_map = os.getenv("LOCAL_VL_DEVICE_MAP", LOCAL_VL_DEVICE_MAP)
+        current_torch_dtype = os.getenv("LOCAL_VL_TORCH_DTYPE", LOCAL_VL_TORCH_DTYPE)
+        current_max_pixels = int(os.getenv("LOCAL_VL_MAX_PIXELS", str(LOCAL_VL_MAX_PIXELS)))
+
+        self.model_path = str(Path(model_path or current_model_path))
+        self.device_map = device_map or current_device_map
+        self.torch_dtype = _resolve_dtype(torch_dtype or current_torch_dtype)
+        self.max_pixels = max_pixels or current_max_pixels
         self.model = None
         self.processor = None
 

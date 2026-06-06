@@ -48,6 +48,18 @@
               <div v-if="msg.html" v-html="msg.html"></div>
               <div v-else class="msg-text">{{ msg.content }}</div>
             </div>
+            <div v-if="msg.id" class="feedback-row">
+              <span class="feedback-label">本次回答有帮助吗？</span>
+              <el-rate
+                v-model="msg.feedbackRating"
+                size="small"
+                :max="5"
+                :disabled="msg.feedbackSubmitting"
+                @change="submitFeedback(msg)"
+              />
+              <el-button size="small" text @click="openFeedbackDialog(msg)">补充意见</el-button>
+              <span v-if="msg.feedbackSubmitted" class="feedback-done">已反馈</span>
+            </div>
             <CoTPanel :steps="msg._cotSteps" v-if="msg._cotSteps?.length" :defaultExpanded="false" class="msg-cot" />
           </div>
         </div>
@@ -100,11 +112,34 @@
       <span class="lightbox-close">×</span>
       <img :src="lightboxSrc" @click.stop />
     </div>
+
+    <el-dialog v-model="feedbackDialog.visible" title="补充反馈意见" width="420px">
+      <el-form label-position="top">
+        <el-form-item label="评分">
+          <el-rate v-model="feedbackDialog.rating" />
+        </el-form-item>
+        <el-form-item label="意见或修改建议">
+          <el-input
+            v-model="feedbackDialog.comment"
+            type="textarea"
+            :rows="4"
+            maxlength="1000"
+            show-word-limit
+            placeholder="例如：回答过于笼统、缺少处置建议、隐患判断不准确..."
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="feedbackDialog.visible = false">取消</el-button>
+        <el-button type="primary" :loading="feedbackDialog.submitting" @click="submitFeedbackDialog">提交反馈</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, ref, nextTick, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import { chatAPI } from '../api/chat'
 import client from '../api/index'
 import CoTPanel from '../components/CoTPanel.vue'
@@ -119,6 +154,13 @@ const imgFiles = ref([])
 const imgPreviews = ref([])
 const chatBox = ref(null)
 const lightboxSrc = ref(null)
+const feedbackDialog = ref({
+  visible: false,
+  message: null,
+  rating: 5,
+  comment: '',
+  submitting: false,
+})
 
 function onChatClick(e) {
   if (e.target.tagName === 'IMG' && e.target.src.startsWith('data:image')) {
@@ -171,6 +213,7 @@ async function switchConv(id) {
     for (const m of data.messages) {
       const meta = m.metadata || {}
       const msg = {
+        id: m.id,
         role: m.role,
         content: m.content || '',
         html: m.role === 'assistant' && isHtmlContent(m.content) ? renderMarkdown(m.content) : null,
@@ -178,6 +221,9 @@ async function switchConv(id) {
           ? Array.from({length: meta.image_count || 1}, (_, i) => `/api/chat/images/${m.id}?idx=${i}`)
           : null,
         toolCalls: meta.tool_calls || null,
+        feedbackRating: null,
+        feedbackSubmitted: false,
+        feedbackSubmitting: false,
       }
       msgs.push(msg)
       // 从 assistant 消息的 metadata 提取 CoT
@@ -275,9 +321,13 @@ async function send() {
     (result) => {
       currentId.value = result.conversation_id
       messages.value[aiIdx] = {
+        id: result.message_id,
         role: 'assistant',
         content: result.response,
         html: isHtmlContent(result.response) ? renderMarkdown(result.response) : null,
+        feedbackRating: null,
+        feedbackSubmitted: false,
+        feedbackSubmitting: false,
       }
       sending.value = false
       chatAPI.listConversations().then(c => conversations.value = c)
@@ -293,6 +343,40 @@ async function send() {
 }
 function scrollBottom() {
   if (chatBox.value) chatBox.value.scrollTop = chatBox.value.scrollHeight
+}
+
+async function submitFeedback(msg, comment = null) {
+  if (!msg?.id || !msg.feedbackRating) return
+  msg.feedbackSubmitting = true
+  try {
+    await chatAPI.submitFeedback(msg.id, msg.feedbackRating, comment)
+    msg.feedbackSubmitted = true
+    ElMessage.success('反馈已记录，感谢帮助我们优化模型')
+  } catch (e) {
+    ElMessage.error('反馈提交失败，请稍后重试')
+  } finally {
+    msg.feedbackSubmitting = false
+  }
+}
+
+function openFeedbackDialog(msg) {
+  feedbackDialog.value = {
+    visible: true,
+    message: msg,
+    rating: msg.feedbackRating || 5,
+    comment: '',
+    submitting: false,
+  }
+}
+
+async function submitFeedbackDialog() {
+  const target = feedbackDialog.value.message
+  if (!target?.id) return
+  feedbackDialog.value.submitting = true
+  target.feedbackRating = feedbackDialog.value.rating || 5
+  await submitFeedback(target, feedbackDialog.value.comment)
+  feedbackDialog.value.submitting = false
+  feedbackDialog.value.visible = false
 }
 </script>
 
@@ -437,6 +521,21 @@ function scrollBottom() {
 }
 .msg-text { white-space: pre-wrap; }
 .msg-cot { margin-top: 6px; max-width: 85%; }
+.feedback-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 85%;
+  margin-top: 6px;
+  padding-left: 6px;
+  color: #9a9085;
+  font-size: 12px;
+}
+.feedback-label { white-space: nowrap; }
+.feedback-done {
+  color: #7eb89e;
+  font-size: 12px;
+}
 
 /* ── 输入区 ── */
 .chat-input-row { display: flex; gap: 10px; align-items: flex-end; }

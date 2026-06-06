@@ -4,31 +4,60 @@
     <div class="login-bg-shape2"></div>
     <el-card class="login-card">
       <template #header>
-        <h2 class="login-title">登录 Building Agent</h2>
+        <h2 class="login-title">{{ pageTitle }}</h2>
+        <p v-if="adminMode" class="login-subtitle">管理端入口，仅限管理员账号</p>
       </template>
       <el-form>
         <el-form-item><el-input v-model="username" placeholder="用户名" prefix-icon="User" size="large" /></el-form-item>
         <el-form-item><el-input v-model="password" type="password" placeholder="密码" prefix-icon="Lock" size="large" @keyup.enter="handleLogin" /></el-form-item>
-        <el-form-item>
-          <el-button type="primary" class="login-btn" @click="handleLogin" :loading="loading" size="large">登 录</el-button>
-        </el-form-item>
-        <el-form-item>
-          <el-button text class="toggle-btn" @click="showReg = !showReg">{{ showReg ? '返回登录' : '注册新账号' }}</el-button>
-        </el-form-item>
         <template v-if="showReg">
-          <el-form-item><el-input v-model="regPass2" type="password" placeholder="确认密码" size="large" /></el-form-item>
-          <el-form-item>
-            <el-button class="reg-btn" @click="handleRegister" :loading="loading" size="large">注 册</el-button>
-          </el-form-item>
+          <el-form-item><el-input v-model="regPass2" type="password" placeholder="确认密码" size="large" @keyup.enter="handleRegister" /></el-form-item>
         </template>
-        <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" class="login-error" />
+        <el-form-item>
+          <el-button
+            v-if="!showReg"
+            type="primary"
+            class="login-btn"
+            @click="handleLogin"
+            :loading="loading"
+            size="large"
+          >
+            {{ adminMode ? '管理员登录' : '登 录' }}
+          </el-button>
+          <el-button
+            v-else
+            type="primary"
+            class="login-btn"
+            @click="handleRegister"
+            :loading="loading"
+            size="large"
+          >
+            注 册
+          </el-button>
+        </el-form-item>
+        <el-form-item v-if="!adminMode">
+          <el-button text class="toggle-btn" @click="toggleRegister">
+            {{ showReg ? '返回登录' : '注册新账号' }}
+          </el-button>
+        </el-form-item>
+        <el-alert
+          v-if="message"
+          :title="message"
+          :type="messageType"
+          show-icon
+          :closable="false"
+          class="login-message"
+        />
       </el-form>
+      <button class="admin-entry" @click="toggleAdminMode">
+        {{ adminMode ? '返回普通登录' : '管理入口' }}
+      </button>
     </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 const router = useRouter()
@@ -37,20 +66,63 @@ const username = ref('')
 const password = ref('')
 const regPass2 = ref('')
 const showReg = ref(false)
+const adminMode = ref(false)
 const loading = ref(false)
-const error = ref('')
+const message = ref('')
+const messageType = ref('error')
+
+const pageTitle = computed(() => {
+  if (adminMode.value) return '管理员登录'
+  return showReg.value ? '注册 Building Agent' : '登录 Building Agent'
+})
+
+function setMessage(text, type = 'error') {
+  message.value = text
+  messageType.value = type
+}
+
+function clearMessage() {
+  message.value = ''
+}
+
+function toggleRegister() {
+  showReg.value = !showReg.value
+  regPass2.value = ''
+  clearMessage()
+}
+
+function toggleAdminMode() {
+  adminMode.value = !adminMode.value
+  showReg.value = false
+  regPass2.value = ''
+  clearMessage()
+}
 
 async function handleLogin() {
-  loading.value = true; error.value = ''
-  try { await auth.login(username.value, password.value); router.push('/chat') }
-  catch (e) { error.value = e.response?.data?.detail || '登录失败' }
+  loading.value = true; clearMessage()
+  try {
+    await auth.login(username.value, password.value)
+    if (adminMode.value && !auth.isAdmin) {
+      auth.logout()
+      setMessage('该账号不是管理员账号，请返回普通登录')
+      return
+    }
+    router.push(adminMode.value ? '/feedback' : '/chat')
+  }
+  catch (e) { setMessage(e.response?.data?.detail || '登录失败') }
   finally { loading.value = false }
 }
 async function handleRegister() {
-  if (password.value !== regPass2.value) { error.value = '两次密码不一致'; return }
-  loading.value = true; error.value = ''
-  try { await auth.register(username.value, password.value); showReg.value = false; error.value = '注册成功，请登录' }
-  catch (e) { error.value = e.response?.data?.detail || '注册失败' }
+  if (password.value !== regPass2.value) { setMessage('两次密码不一致'); return }
+  loading.value = true; clearMessage()
+  try {
+    await auth.register(username.value, password.value)
+    showReg.value = false
+    password.value = ''
+    regPass2.value = ''
+    setMessage('注册成功，请登录', 'success')
+  }
+  catch (e) { setMessage(e.response?.data?.detail || '注册失败') }
   finally { loading.value = false }
 }
 </script>
@@ -86,6 +158,7 @@ async function handleRegister() {
   pointer-events: none;
 }
 .login-card {
+  position: relative;
   width: 420px;
   background: #fff;
   border: 1px solid #e8e2d8;
@@ -107,6 +180,12 @@ async function handleRegister() {
   font-weight: 600;
   font-size: 20px;
 }
+.login-subtitle {
+  text-align: center;
+  color: #a08f80;
+  margin: 8px 0 0;
+  font-size: 12px;
+}
 .login-btn {
   width: 100%;
   --el-button-bg-color: #6b7fa0;
@@ -114,16 +193,24 @@ async function handleRegister() {
   --el-button-hover-bg-color: #7d90b0;
   --el-button-hover-border-color: #7d90b0;
 }
-.reg-btn {
-  width: 100%;
-  --el-button-bg-color: #f3efe9;
-  --el-button-border-color: #e0d9ce;
-  --el-button-text-color: #6b6054;
-}
 .toggle-btn { width: 100%; color: #8a8278; }
-.login-error {
+.login-message {
   margin-top: 8px;
-  --el-alert-bg-color: #fdf2f2;
   border-radius: 10px;
+}
+.admin-entry {
+  position: absolute;
+  right: 14px;
+  bottom: 10px;
+  border: none;
+  background: transparent;
+  color: #d0c6bb;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0.55;
+}
+.admin-entry:hover {
+  color: #8b9ec9;
+  opacity: 1;
 }
 </style>

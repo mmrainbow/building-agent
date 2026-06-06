@@ -9,6 +9,12 @@ from sqlalchemy.orm import Session
 
 from .models import ChatMessage, Conversation
 
+INTERNAL_CONVERSATION_TITLES = {"__inspection__", "图像巡检"}
+
+
+def is_internal_conversation(conv: Conversation | None) -> bool:
+    return bool(conv and conv.title in INTERNAL_CONVERSATION_TITLES)
+
 
 def create_conversation(
     db: Session, user_id: int, title: str | None = None, model: str | None = None
@@ -34,7 +40,7 @@ def get_user_conversations(
     return (
         db.query(Conversation)
         .filter(Conversation.user_id == user_id)
-        .filter(Conversation.title != "__inspection__")
+        .filter(~Conversation.title.in_(INTERNAL_CONVERSATION_TITLES))
         .order_by(Conversation.updated_at.desc())
         .offset(offset)
         .limit(limit)

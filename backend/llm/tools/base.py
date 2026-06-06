@@ -10,6 +10,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from materials import material_to_zh
+
 from .schemas import DEFECT_SCHEMA, MATERIAL_SCHEMA, FLOOR_SCHEMA, EXTENSION_SCHEMA
 
 MODEL_DIR = Path(__file__).parent.parent.parent / "model_weights"
@@ -136,6 +138,13 @@ class DefectToolWrapper(CVToolWrapper):
                 f"(面积: {d.get('area', 0):.0f}px²)"
             )
         return f"检测到 {len(items)} 处隐患:\n" + "\n".join(items) if items else "未检测到明显隐患。"
+
+
+class MaterialToolWrapper(CVToolWrapper):
+    """材质识别专用 — 将模型英文标签转换为中文名称。"""
+
+    def _format_output(self, value):
+        return material_to_zh(str(value or ""))
 
 
 # ── Predictor 工厂函数（延迟 import torch/ultralytics）────────

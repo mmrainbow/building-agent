@@ -32,6 +32,7 @@ from .chat_crud import (
     create_conversation,
     get_conversation,
     get_user_conversations,
+    is_internal_conversation,
     update_conversation_title,
     delete_conversation,
     add_message,

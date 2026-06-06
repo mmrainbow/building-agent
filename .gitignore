@@ -1,20 +1,29 @@
+# 默认忽略根目录下所有内容，只上传下面白名单中的项目
+/*
+
+# 允许上传的根目录文件 / 文件夹
+!/.gitignore
+!/backend/
+!/frontend/
+!/AGENT.md
+!/DEVELOPMENT_PLAN.md
+!/README.md
+
+# ── 全局临时文件 ──
+__pycache__/
+*.py[cod]
+*.log
+*.db
+*.sqlite
 .idea/
 .claude/
 .gradio/
-__pycache__/
-*.py[cod]
-*.db
-*.sqlite
-*.log
-inspection.db
-outputs/
-ollama-test/
-*.docx
-*.pickle
+
+# ── 前端构建产物 ──
 frontend/node_modules/
 frontend/dist/
 
-# Backend data (large / sensitive files)
+# ── 后端敏感 / 大文件 ──
 backend/.env
 backend/model_weights/*.pt
 backend/model_weights/*.pth

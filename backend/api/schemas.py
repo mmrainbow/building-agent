@@ -22,6 +22,7 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    role: str | None = None
 
 
 class RefreshRequest(BaseModel):
@@ -49,6 +50,7 @@ class RecordResponse(BaseModel):
     has_extension: str | None
     report: str | None
     defects: list[DefectInfo]
+    images: list[dict] = []
     created_at: str | None
 
 

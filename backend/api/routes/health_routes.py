@@ -84,7 +84,7 @@ def agent_status(
         else:
             from db.models import Conversation
             conv = db.query(Conversation).filter(
-                Conversation.title != "__inspection__"
+                ~Conversation.title.in_({"__inspection__", "图像巡检"})
             ).order_by(Conversation.updated_at.desc()).first()
             msgs = get_recent_messages(db, conv.id, limit=50) if conv else []
         total_chars = sum(len(getattr(m, "content", "") or "") for m in msgs)

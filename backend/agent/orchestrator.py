@@ -234,12 +234,13 @@ class ManagerAgent:
             final_text = final_resp.get("content") or "无法生成报告。"
 
         # 5. 持久化短期记忆，并提炼长期记忆
-        self._save_turn(db, conversation_id, message, final_text, tool_log,
-                        user_msg_id=_user_msg_id)
+        assistant_msg_id = self._save_turn(db, conversation_id, message, final_text, tool_log,
+                                           user_msg_id=_user_msg_id)
         self._extract_memory(db, user_id, conversation_id)
 
         return {
             "response": final_text,
+            "message_id": assistant_msg_id,
             "tool_log": tool_log,
             "rounds": len(tool_log),
             "usage": total_usage,
@@ -263,7 +264,7 @@ class ManagerAgent:
         assistant_msg: str,
         tool_log: list[dict],
         user_msg_id: int | None = None,
-    ) -> None:
+    ) -> int | None:
         """保存本轮对话到 ChatMessage 表。user_msg_id 非空时跳过用户消息创建。"""
         if user_msg_id:
             # 用户消息+图片已预创建，更新消息计数
@@ -278,13 +279,15 @@ class ManagerAgent:
         if assistant_msg:
             from db.chat_crud import add_message
             meta = {"tool_calls": tool_log} if tool_log else None
-            add_message(
+            msg = add_message(
                 db,
                 conversation_id,
                 "assistant",
                 self._strip_img_tags(assistant_msg),
                 metadata=meta,
             )
+            return msg.id
+        return None
 
     def _extract_memory(self, db: Any, user_id: int, conversation_id: int) -> None:
         """对话后记忆管理：LLM判断 → 提取记忆 → 压缩旧消息为摘要。"""

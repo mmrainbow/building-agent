@@ -13,6 +13,7 @@ const routes = [
       { path: '/inspection', name: 'Inspection', component: () => import('../views/Inspection.vue') },
       { path: '/history', name: 'History', component: () => import('../views/History.vue') },
       { path: '/monitor', name: 'Monitor', component: () => import('../views/AgentMonitor.vue') },
+      { path: '/feedback', name: 'FeedbackAdmin', component: () => import('../views/FeedbackAdmin.vue'), meta: { adminOnly: true } },
     ],
   },
 ]
@@ -22,6 +23,7 @@ const router = createRouter({ history: createWebHistory(), routes })
 router.beforeEach((to, from, next) => {
   const auth = useAuthStore()
   if (to.meta.requiresAuth && !auth.token) return next('/login')
+  if (to.meta.adminOnly && !auth.isAdmin) return next('/chat')
   if (to.path === '/login' && auth.token) return next('/chat')
   next()
 })

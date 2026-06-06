@@ -26,9 +26,9 @@ async def lifespan(app: FastAPI):
 
 
 def _bootstrap_data() -> None:
-    """初始化数据库并在首次启动时创建初始用户。"""
+    """初始化数据库，并确保初始普通用户和管理员存在。"""
     from db import SessionLocal, create_user, init_db
-    from db.models import User
+    from db.models import User, UserRole
 
     init_db()
     db = SessionLocal()
@@ -39,13 +39,30 @@ def _bootstrap_data() -> None:
             migrate_memories_to_chroma(db)
         except Exception:
             pass
-        if db.query(User).first() is not None:
-            return
         username = os.getenv("INIT_USERNAME", "user123")
         password = os.getenv("INIT_PASSWORD", "user123")
-        user = create_user(db=db, username=username, password=password)
+        user = None
+        if not db.query(User).filter(User.username == username).first():
+            user = create_user(db=db, username=username, password=password)
         if user:
             print(f"已创建初始用户: {username} / {password}")
+
+        admin_username = os.getenv("INIT_ADMIN_USERNAME", "admin")
+        admin_password = os.getenv("INIT_ADMIN_PASSWORD", "admin123456")
+        admin = db.query(User).filter(User.username == admin_username).first()
+        if admin is None:
+            admin = create_user(
+                db=db,
+                username=admin_username,
+                password=admin_password,
+                role=UserRole.admin,
+            )
+            if admin:
+                print(f"已创建初始管理员: {admin_username} / {admin_password}")
+        elif admin.role != UserRole.admin:
+            admin.role = UserRole.admin
+            db.commit()
+            print(f"已将用户 {admin_username} 设置为管理员")
     finally:
         db.close()
 

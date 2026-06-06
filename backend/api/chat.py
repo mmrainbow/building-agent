@@ -14,6 +14,7 @@ from db import (
     get_conversation,
     get_conversation_messages,
     get_user_conversations,
+    is_internal_conversation,
     update_conversation_title,
 )
 from llm.chat_core import decode_image, decode_images, run_chat
@@ -32,8 +33,21 @@ class ToolCallLog(BaseModel):
 
 class ChatResponse(BaseModel):
     conversation_id: int
+    message_id: int | None = None
     response: str
     tool_log: list[ToolCallLog] = []
+
+
+class ChatFeedbackRequest(BaseModel):
+    rating: int = Field(..., ge=1, le=5)
+    comment: str | None = Field(default=None, max_length=1000)
+
+
+class ChatFeedbackResponse(BaseModel):
+    id: int
+    message_id: int
+    rating: int
+    comment: str | None = None
 
 
 class ConversationItem(BaseModel):
@@ -80,6 +94,8 @@ async def chat_send(
             conv = get_conversation(db, conversation_id)
             if conv is None:
                 raise HTTPException(status_code=404, detail="对话不存在")
+            if is_internal_conversation(conv):
+                raise HTTPException(status_code=404, detail="对话不存在")
             if conv.user_id != user["user_id"]:
                 raise HTTPException(status_code=403, detail="无权访问此对话")
         finally:
@@ -106,6 +122,7 @@ async def chat_send(
 
     return ChatResponse(
         conversation_id=result["conversation_id"],
+        message_id=result.get("message_id"),
         response=result["response"],
         tool_log=[ToolCallLog(**t) for t in result["tool_log"]],
     )
@@ -146,7 +163,7 @@ def conversation_detail(
     db = SessionLocal()
     try:
         conv = get_conversation(db, conv_id)
-        if not conv:
+        if not conv or is_internal_conversation(conv):
             raise HTTPException(status_code=404, detail="对话不存在")
         if conv.user_id != user["user_id"]:
             raise HTTPException(status_code=403, detail="无权访问此对话")
@@ -199,11 +216,52 @@ def delete_conversation_endpoint(
     db = SessionLocal()
     try:
         conv = get_conversation(db, conv_id)
-        if not conv:
+        if not conv or is_internal_conversation(conv):
             raise HTTPException(status_code=404, detail="对话不存在")
         if conv.user_id != user["user_id"]:
             raise HTTPException(status_code=403, detail="无权访问此对话")
         delete_conversation(db, conv_id)
+    finally:
+        db.close()
+
+
+@router.post("/messages/{message_id}/feedback", response_model=ChatFeedbackResponse)
+def submit_message_feedback(
+    message_id: int,
+    payload: ChatFeedbackRequest,
+    user: dict = Depends(get_current_user),
+):
+    """对单条 AI 回复提交评分与文字反馈。"""
+    from db import create_feedback
+    from db.models import ChatMessage
+
+    db = SessionLocal()
+    try:
+        msg = db.query(ChatMessage).filter(ChatMessage.id == message_id).first()
+        if not msg or msg.role != "assistant":
+            raise HTTPException(status_code=404, detail="消息不存在")
+        conv = get_conversation(db, msg.conversation_id)
+        if not conv or is_internal_conversation(conv):
+            raise HTTPException(status_code=404, detail="对话不存在")
+        if conv.user_id != user["user_id"]:
+            raise HTTPException(status_code=403, detail="无权反馈此消息")
+
+        fb = create_feedback(
+            db,
+            user_id=user["user_id"],
+            feedback_type="chat_rating",
+            message_id=message_id,
+            target_field="assistant_response",
+            original_value=msg.content,
+            rating=payload.rating,
+            comment=(payload.comment or "").strip() or None,
+        )
+        return ChatFeedbackResponse(
+            id=fb.id,
+            message_id=message_id,
+            rating=fb.rating or payload.rating,
+            comment=fb.comment,
+        )
     finally:
         db.close()
 
@@ -266,6 +324,8 @@ async def chat_send_stream(
             conv = get_conversation(db, conversation_id)
             if conv is None:
                 raise HTTPException(status_code=404, detail="对话不存在")
+            if is_internal_conversation(conv):
+                raise HTTPException(status_code=404, detail="对话不存在")
             if conv.user_id != user["user_id"]:
                 raise HTTPException(status_code=403, detail="无权访问此对话")
         finally:
@@ -326,7 +386,7 @@ async def chat_send_stream(
                 yield f"data: {json.dumps({'type': 'step', 'data': event}, ensure_ascii=False)}\n\n"
 
             response_text = (result.get("response") or "").strip()
-            yield f"data: {json.dumps({'type': 'done', 'response': response_text, 'conversation_id': conversation_id, 'tool_log': result.get('tool_log', [])}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'response': response_text, 'conversation_id': conversation_id, 'message_id': result.get('message_id'), 'tool_log': result.get('tool_log', [])}, ensure_ascii=False)}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
         finally:

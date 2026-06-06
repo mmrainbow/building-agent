@@ -15,6 +15,7 @@ from typing import Any
 from .base import (
     CVToolWrapper,
     DefectToolWrapper,
+    MaterialToolWrapper,
     MODEL_DIR,
     _make_defect_predictor,
     _make_extension_predictor,
@@ -40,7 +41,7 @@ def build_tools(model_dir: str | None = None) -> dict[str, Any]:
         model_dir = str(MODEL_DIR)
 
     return {
-        "classify_material": CVToolWrapper(
+        "classify_material": MaterialToolWrapper(
             schema=MATERIAL_SCHEMA,
             predictor_factory=lambda: _make_material_predictor(model_dir),
         ),

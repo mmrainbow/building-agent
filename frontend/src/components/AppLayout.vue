@@ -13,6 +13,7 @@
           <el-menu-item index="/chat"><el-icon><ChatDotSquare /></el-icon> 智能问答</el-menu-item>
           <el-menu-item index="/inspection"><el-icon><Picture /></el-icon> 图像巡检</el-menu-item>
           <el-menu-item index="/history"><el-icon><Document /></el-icon> 巡检记录</el-menu-item>
+          <el-menu-item v-if="auth.isAdmin" index="/feedback"><el-icon><Star /></el-icon> 用户反馈</el-menu-item>
         </el-menu>
       </el-aside>
       <el-main class="app-main">

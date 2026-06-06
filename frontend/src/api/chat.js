@@ -54,4 +54,7 @@ export const chatAPI = {
 
   deleteConversation: (convId) =>
     client.delete(`/chat/conversations/${convId}`),
+
+  submitFeedback: (messageId, rating, comment) =>
+    client.post(`/chat/messages/${messageId}/feedback`, { rating, comment }).then((r) => r.data),
 }

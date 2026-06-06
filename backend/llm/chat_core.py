@@ -30,7 +30,7 @@ def run_chat(
     """创建/续接对话 → 调用 Agent → 返回结果。
 
     Returns:
-        {"response": str, "tool_log": list, "conversation_id": int}
+        {"response": str, "tool_log": list, "conversation_id": int, "message_id": int | None}
     """
     db = SessionLocal()
     try:
@@ -55,6 +55,7 @@ def run_chat(
             "response": (result.get("response") or "").strip() or "未生成报告。",
             "tool_log": result.get("tool_log", []),
             "conversation_id": conversation_id,
+            "message_id": result.get("message_id"),
         }
     finally:
         db.close()

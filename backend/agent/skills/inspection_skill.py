@@ -12,6 +12,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from materials import material_to_zh, replace_material_terms
 
 MODEL_DIR = Path(__file__).parent.parent.parent / "model_weights"
 MIN_IMAGES = 3
@@ -166,14 +167,14 @@ class InspectionSkill:
         _, buf = cv2.imencode(".jpg", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
         jpeg_bytes = buf.tobytes()
 
-        # 创建或复用巡检专用 Conversation（__inspection__ 前缀会被聊天列表过滤）
+        # 创建或复用巡检专用 Conversation（内部标题会被聊天列表过滤）
         from db.models import Conversation
         conv = db.query(Conversation).filter(
             Conversation.user_id == record.user_id,
             Conversation.title == "__inspection__",
         ).first()
         if conv is None:
-            conv = Conversation(user_id=record.user_id, title="图像巡检")
+            conv = Conversation(user_id=record.user_id, title="__inspection__")
             db.add(conv)
             db.flush()
 
@@ -211,6 +212,7 @@ class InspectionSkill:
                     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                     result = self._inspect_single(img)
                     # 回写检测结果
+                    result["material"] = material_to_zh(result["material"])
                     img_entry.material = result["material"]
                     img_entry.floor = result["floor"]
                     img_entry.has_extension = result["has_extension"]
@@ -227,6 +229,7 @@ class InspectionSkill:
 
         # 生成汇总报告（优先 Report Agent，回退远程 API）
         report, annotated_b64 = self._generate_report(all_results, img_entries)
+        report = replace_material_terms(report)
         record.report = report
         # 保存标注图片到 chat_images/ 目录供前端展示
         _annotated_paths = _save_annotated_images(record.id, annotated_b64)
@@ -238,7 +241,7 @@ class InspectionSkill:
 
     def _inspect_single(self, image) -> dict:
         return {
-            "material": self._predict("material", image),
+            "material": material_to_zh(self._predict("material", image)),
             "floor": self._predict("floor", image),
             "has_extension": self._predict("extension", image),
             "defects": self._predict("defect", image) or [],

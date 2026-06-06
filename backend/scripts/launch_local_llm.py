@@ -38,10 +38,15 @@ MODEL_PATH = os.getenv(
 os.environ["LOCAL_VL_MODEL_PATH"] = MODEL_PATH
 os.environ["LOCAL_VL_MODEL_ENABLED"] = "true"
 
-from llm.local_vl_model import build_inspection_prompt, get_local_vl_client
+if "--model" in sys.argv:
+    model_arg_index = sys.argv.index("--model")
+    if model_arg_index + 1 < len(sys.argv):
+        os.environ["LOCAL_VL_MODEL_PATH"] = sys.argv[model_arg_index + 1]
 
 
 def build_app():
+    from llm.local_vl_model import build_inspection_prompt, get_local_vl_client
+
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
@@ -200,6 +205,7 @@ def main():
     print(f"[Server] 正在加载模型...")
 
     import uvicorn
+    from llm.local_vl_model import get_local_vl_client
 
     # 预加载模型
     try:

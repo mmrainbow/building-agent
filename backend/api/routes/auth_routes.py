@@ -48,6 +48,7 @@ def login(
     return TokenResponse(
         access_token=create_access_token(token_data),
         refresh_token=create_refresh_token(token_data),
+        role=role,
     )
 
 
@@ -65,6 +66,7 @@ def login_json(body: LoginRequest, db: Session = Depends(get_db)):
     return TokenResponse(
         access_token=create_access_token(token_data),
         refresh_token=create_refresh_token(token_data),
+        role=role,
     )
 
 
@@ -81,4 +83,5 @@ def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
     return TokenResponse(
         access_token=create_access_token(user_data),
         refresh_token=create_refresh_token(user_data),
+        role=payload["role"],
     )
