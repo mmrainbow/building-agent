@@ -23,7 +23,7 @@ EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", os.getenv("LLM_API_KEY", ""))
 EMBEDDING_BASE_URL = os.getenv(
     "EMBEDDING_BASE_URL",os.getenv("LLM_BASE_URL", " "),)
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-v3")
-CHROMA_DB_DIR = Path(__file__).parent.parent.parent / "chroma_db"
+CHROMA_DB_DIR = Path(__file__).resolve().parent.parent / "chroma_db"
 
 
 # ─── Embedding 实现 ───────────────────────────────────────────────

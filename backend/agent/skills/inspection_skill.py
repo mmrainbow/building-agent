@@ -16,19 +16,33 @@ import numpy as np
 MODEL_DIR = Path(__file__).parent.parent.parent / "model_weights"
 MIN_IMAGES = 3
 
+# 隐患类型 → BGR 颜色
+_DEFECT_COLORS = {
+    "空鼓": (0, 0, 255),     # 红
+    "渗水": (255, 0, 0),     # 蓝
+    "脱落": (0, 165, 255),   # 橙
+    "裂缝": (0, 255, 255),   # 黄
+}
+_DEFAULT_COLOR = (0, 0, 255)
+
+
+def get_defect_color(defect_type: str) -> tuple[int, int, int]:
+    return _DEFECT_COLORS.get(defect_type, _DEFAULT_COLOR)
+
 
 def draw_defects(image: np.ndarray, defects: list[dict]) -> np.ndarray:
-    """在图片上绘制缺陷框和编号标签。返回标注后的图片 (RGB)。"""
+    """在图片上绘制缺陷框和编号标签。不同隐患类型用不同颜色。返回标注后的图片 (RGB)。"""
     rendered = image.copy()
     for d in defects:
         box = d.get("box", [])
         if len(box) != 4:
             continue
+        color = get_defect_color(d.get("type", ""))
         pts = np.array(box, dtype=np.int32).reshape((-1, 1, 2))
-        cv2.polylines(rendered, [pts], isClosed=True, color=(255, 0, 0), thickness=3)
+        cv2.polylines(rendered, [pts], isClosed=True, color=color, thickness=3)
         label = str(d.get("id", "?"))
         x, y = pts[0][0]
-        cv2.putText(rendered, label, (x, y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+        cv2.putText(rendered, label, (x, y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
     return rendered
 
 
@@ -288,12 +302,14 @@ class InspectionSkill:
                 data = resp.json()
                 elapsed = data.get("elapsed_seconds", 0)
                 print(f"[InspectionSkill] Report Agent 生成成功 ({elapsed:.1f}s)")
-                # 标注图嵌入报告 — 图文并茂
-                img_tags = "".join(
-                    f'<img src="data:image/jpeg;base64,{b64}" style="max-width:400px;border:1px solid #ddd;border-radius:8px;margin:8px 0">'
+                # 标注图嵌入报告 — 横向缩略图条，点击放大
+                items = "".join(
+                    f'<img src="data:image/jpeg;base64,{b64}"'
+                    f' style="height:120px;border-radius:6px;cursor:pointer;flex-shrink:0"'
+                    f' onclick="this.style.height=this.style.height===\'120px\'?\'auto\':\'120px\'">'
                     for b64 in annotated_b64_list
                 )
-                report = f"{img_tags}\n\n{data['report']}"
+                report = f'<div style="display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;padding-bottom:4px">{items}</div>\n{data["report"]}'
                 return report, annotated_b64_list
         except Exception as e:
             print(f"[InspectionSkill] Report Agent 不可用: {e}")

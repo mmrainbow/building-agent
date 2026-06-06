@@ -44,15 +44,18 @@ class ReportAgentTool:
             print(f"  图{idx}: cache defects={len(defects)}条 → ", end="")
             if defects:
                 print("画框 + 标注")
+                from agent.skills.inspection_skill import get_defect_color
+
                 rendered = img.copy()
                 for d in defects:
                     box = d.get("box", [])
                     if len(box) == 4:
+                        color = get_defect_color(d.get("type", ""))
                         pts = __import__("numpy").array(box, dtype=__import__("numpy").int32).reshape((-1, 1, 2))
-                        __import__("cv2").polylines(rendered, [pts], isClosed=True, color=(255, 0, 0), thickness=3)
+                        __import__("cv2").polylines(rendered, [pts], isClosed=True, color=color, thickness=3)
                         label = str(d.get("id", "?"))
                         x, y = pts[0][0]
-                        __import__("cv2").putText(rendered, label, (x, y - 8), __import__("cv2").FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+                        __import__("cv2").putText(rendered, label, (x, y - 8), __import__("cv2").FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
                 _, buf = __import__("cv2").imencode(".jpg", rendered)
                 images_b64.append(base64.b64encode(buf.tobytes()).decode("utf-8"))
                 for d in defects:
@@ -91,13 +94,18 @@ class ReportAgentTool:
                 report_text = re.sub(r'!\[.*?\]\(data:image[^)]*\)?', '', report_text)
                 report_text = re.sub(r'<img[^>]*data:image[^>]*>', '', report_text)
                 report_text = re.sub(r'data:image\S+', '', report_text)
-                # 标注图前置 — 不依赖 LLM 输出标记，直接展示
+                # 标注图前置 — 横向缩略图条，点击放大
                 if images_b64:
-                    img_tags = "".join(
-                        f'<img src="data:image/jpeg;base64,{b64}" style="max-width:400px;border:1px solid #ddd;border-radius:8px;margin:8px 0">'
+                    items = "".join(
+                        f'<img src="data:image/jpeg;base64,{b64}"'
+                        f' style="height:120px;border-radius:6px;cursor:pointer;flex-shrink:0"'
+                        f' onclick="this.style.height=this.style.height===\'120px\'?\'auto\':\'120px\';this.style.maxWidth=this.style.maxWidth===\'120px\'?\'100%\':\'120px\'">'
                         for b64 in images_b64
                     )
-                    report_text = f"{img_tags}\n\n{report_text}"
+                    report_text = (
+                        f'<div style="display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;padding-bottom:4px">{items}</div>\n'
+                        + report_text
+                    )
                 print(f"  Report Agent 返回: {len(data['report'])} 字符, 耗时 {elapsed:.1f}s\n")
                 return f"📋 **专业巡检报告** (生成耗时 {elapsed:.1f}s):\n\n{report_text.strip() or data['report']}"
             print(f"  Report Agent HTTP {resp.status_code}\n")
