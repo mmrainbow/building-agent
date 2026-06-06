@@ -141,7 +141,8 @@ POST /token/refresh        刷新 token
 POST /inspection/multi     多图巡检 (≥3张, 返回报告+标注图)
 GET  /history              巡检列表 (分页)
 GET  /history/{id}         单条详情
-GET  /history/{id}/export  导出 Excel
+GET  /history/images/{image_id}/{kind} 获取历史巡检原图/标注图
+GET  /history/{id}/export  导出报告 (Excel / Word / Markdown)
 ```
 
 ### 对话（需 JWT）
@@ -152,6 +153,7 @@ GET  /chat/conversations   我的对话列表
 GET  /chat/conversations/{id} 对话详情 (含图片 URL)
 DELETE /chat/conversations/{id} 删除对话
 GET  /chat/images/{message_id} 获取图片 (公开端点)
+POST /chat/messages/{message_id}/feedback 对单条 AI 回复提交评分/意见
 GET  /chat/memories           对话记忆列表
 DELETE /chat/memories/{id}    删除单条记忆
 ```
@@ -159,6 +161,9 @@ DELETE /chat/memories/{id}    删除单条记忆
 ### 管理（需 admin）
 ```
 GET  /admin/users          用户列表
+GET  /admin/dashboard      管理员看板统计
+GET  /admin/feedbacks      用户反馈列表
+GET  /admin/feedbacks/stats 用户反馈统计
 ```
 
 ### 运维
@@ -228,9 +233,49 @@ npm run dev     # http://localhost:5173 (代理 /api → :8000)
 - `README.md`                       快速启动指南
 
 ## 当前开发阶段
-阶段 2/2.5 完成 — 多 Agent 协同 (Manager + Memory + Report) + 前后端分离 (Vue 3 + FastAPI)。
+阶段 3 完成 — 多 Agent 协同 (Manager + Memory + Report) + 前后端分离 (Vue 3 + FastAPI) + 用户反馈闭环。
 代码已重构: Gradio 适配层移除，按职责解耦为独立模块。
-下一步：阶段 3 反馈系统。
+下一步：稳定性优化、课程演示材料整理、低风险体验增强。
+
+## 修改记录
+
+### 2026-06-06
+
+#### 1. 智能问答反馈闭环
+- 在 `frontend/src/views/Chat.vue` 中为每条 AI 回复增加 1-5 星评分和“补充意见”入口。
+- 新增 `POST /chat/messages/{message_id}/feedback`，反馈写入 `feedbacks` 表，类型为 `chat_rating`。
+- `backend/agent/orchestrator.py` 和 `backend/llm/chat_core.py` 透传 AI 回复的 `message_id`，确保反馈能精确绑定到单条回复。
+
+#### 2. 管理员反馈与看板
+- 新增 `frontend/src/views/FeedbackAdmin.vue` 和 `frontend/src/api/admin.js`。
+- 管理员侧边栏新增“用户反馈”入口。
+- 新增 `/admin/dashboard`，统计用户数、巡检次数、平均评分、模型调用次数、隐患分布和材质分布。
+- 新增 `/admin/feedbacks` 与 `/admin/feedbacks/stats`，支持查看用户评分、文字意见和原始 AI 回复。
+
+#### 3. 登录与管理员入口优化
+- `frontend/src/views/Login.vue` 区分普通登录、注册、管理员登录三种状态。
+- 注册成功提示改为绿色成功提示，不再复用红色错误提示。
+- 登录页右下角增加隐蔽“管理入口”，管理员登录成功后进入 `/feedback`。
+- `backend/api/schemas.py` 与 `backend/api/routes/auth_routes.py` 登录响应补充 `role` 字段，前端可正确识别管理员。
+- `backend/api/main.py` 启动时确保初始管理员存在，避免已有普通用户时跳过管理员创建。
+
+#### 4. 巡检记录体验增强
+- `frontend/src/views/History.vue` 页面进入时自动加载巡检记录，不再需要手动点击刷新。
+- 巡检详情中新增原图和动态标注图预览。
+- 新增 `GET /history/images/{image_id}/{kind}`，支持 `original` 和 `annotated` 两类图片。
+- 巡检报告导出从单一 Excel 扩展为 Excel / Word / Markdown 三种格式。
+
+#### 5. 图像巡检与智能问答数据隔离
+- 图像巡检产生的内部会话统一使用 `__inspection__` 标记。
+- `backend/db/chat_crud.py` 过滤 `__inspection__` 和历史旧标题“图像巡检”，避免巡检图片出现在智能问答会话列表。
+- `backend/api/chat.py` 禁止访问内部巡检会话，防止通过手动传 ID 串入问答。
+
+#### 6. 本地模型启动与材质中文化
+- `backend/scripts/launch_local_llm.py` 修复 `--model` 参数被默认路径覆盖的问题。
+- `backend/llm/local_vl_model.py` 改为创建客户端时读取最新 `LOCAL_VL_MODEL_PATH`。
+- 新增 `backend/materials.py`，统一维护材质英文标签到中文名称的映射。
+- 新巡检入库、历史展示、导出报告、管理员看板、智能问答工具返回均统一显示中文材质。
+- 已知英文标签包括 `Stone Hanging`、`Mortar`、`Glass Curtain Wall`、`Real Stone Paint`、`Coating`、`Aluminum Plate`、`Face Brick`、`Mosaic`。
 
 ## 快速命令
 ```bash
