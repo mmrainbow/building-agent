@@ -33,6 +33,12 @@ def _bootstrap_data() -> None:
     init_db()
     db = SessionLocal()
     try:
+        # 已有记忆未向量化的 → 迁移
+        try:
+            from agent.rag import migrate_memories_to_chroma
+            migrate_memories_to_chroma(db)
+        except Exception:
+            pass
         if db.query(User).first() is not None:
             return
         username = os.getenv("INIT_USERNAME", "user123")

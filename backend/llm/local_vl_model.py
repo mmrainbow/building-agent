@@ -42,15 +42,19 @@ def _resolve_dtype(dtype_name: str):
     return dtype
 
 
-def _format_defects(defects: list[dict[str, Any]]) -> str:
+def _format_defects(defects: list[dict[str, Any]], image_count: int = 1) -> str:
     if not defects:
         return "无明显隐患"
     lines = []
-    for d in defects:
-        img_idx = d.get("image_index", "?")
+    for i, d in enumerate(defects):
         defect_type = d.get("type", "未知隐患")
         area = d.get("area", 0)
-        lines.append(f"- 图{img_idx}: {defect_type}，像素面积约 {float(area):.1f}px")
+        label = f"缺陷{i+1}：{defect_type}，像素面积约 {float(area):.1f}px"
+        # 多图时标注来源图片
+        if image_count > 1:
+            img_idx = d.get("image_index", "?")
+            label = f"图{img_idx} {label}"
+        lines.append(f"- {label}")
     return "\n".join(lines)
 
 
@@ -66,20 +70,26 @@ def build_inspection_prompt(
     flr = floor or "Unknown"
     ext = has_extension or "Unknown"
 
+    single = image_count <= 1
+    intro = "现有一张建筑照片" if single else f"现有一栋建筑共 {image_count} 张不同角度照片"
+    defect_title = "隐患明细：" if single else "隐患明细（按图片编号）："
+    structure = "内容包含：检测概况 → 缺陷分析 → 综合评定 → 处理建议" if single else "内容包含：检测概况 → 逐图分析 → 综合评定 → 处理建议"
+
     return (
-        f"你是住建外立面巡检报告助手。现有一栋建筑共 {image_count} 张不同角度照片（标注图已附在报告前面）。\n"
+        f"你是住建外立面巡检报告助手。{intro}（标注图已附在报告前面）。\n"
         f"请结合图像和以下结构化检测结果生成中文巡检报告。\n\n"
-        f"结构化检测结果（共 {image_count} 张图片汇总）：\n"
+        f"结构化检测结果：\n"
         f"- 材质：{mat}\n"
         f"- 楼层：{flr}\n"
         f"- 加层：{ext}\n"
-        f"- 隐患明细（按图片编号）：\n{_format_defects(defects)}\n\n"
+        f"- {defect_title}\n{_format_defects(defects, image_count)}\n\n"
         f"重要约束：\n"
         f"1. 隐患 area 是图像像素面积 px²，只能用于相对大小参考，禁止换算为平方米或平方厘米。\n"
         f"2. 不要编造检测结果之外的事实。\n"
         f"3. 输出 200 到 350 字中文，使用 Markdown 格式排版（## 标题、**粗体**、- 列表、空行分段）。\n"
-        f"4. 内容包含：检测概况 → 逐图分析 → 综合评定 → 处理建议。\n"
-        f"5. 禁止输出 base64 编码、HTML 标签、或 Markdown 图片语法。"
+        f"4. {structure}。\n"
+        f"5. 禁止输出 base64 编码、HTML 标签、或 Markdown 图片语法。\n"
+        f"6. 这是一张图片的检测结果，不要使用'图1''图2'等多图编号，直接用'缺陷1''缺陷2'区分。"
     )
 
 

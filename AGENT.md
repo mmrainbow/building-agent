@@ -30,11 +30,12 @@ AI 驱动的建筑外立面巡检系统 — 三 Agent 协同架构。
 ```
 frontend/               Vue 3 前端 (Vite + Element Plus + Pinia)
 backend/                Python 后端
-  agent/                 Manager Agent
-    orchestrator.py       ReAct 循环 + 持久化
+  agent/                 Manager Agent + Memory 系统
+    orchestrator.py       ReAct 循环 + 持久化 + 摘要压缩
     context.py            System Prompt + 消息构建
-    memory_manager.py     双层记忆管理
-    rag.py                ChromaDB RAG 检索
+    memory_manager.py     长期记忆管理 (LLM判断提取 + 向量检索 + 混合排序)
+    memory_reflection.py  反思模块 (≥20条记忆自动生成洞察)
+    rag.py                ChromaDB RAG (建筑规范 + Memory 向量存储)
     skills/               InspectionSkill (多图巡检工作流)
   predictors/            CV模型预测器 (材质/楼层/加层/隐患)
   llm/                   LLM 核心
@@ -151,6 +152,8 @@ GET  /chat/conversations   我的对话列表
 GET  /chat/conversations/{id} 对话详情 (含图片 URL)
 DELETE /chat/conversations/{id} 删除对话
 GET  /chat/images/{message_id} 获取图片 (公开端点)
+GET  /chat/memories           对话记忆列表
+DELETE /chat/memories/{id}    删除单条记忆
 ```
 
 ### 管理（需 admin）
@@ -163,6 +166,19 @@ GET  /admin/users          用户列表
 GET  /health               数据库 + Ollama + 模型文件状态 (公开)
 GET  /agent/status         Manager/Memory/Report 三 Agent 状态 (需 JWT)
 ```
+
+## Memory 系统 (三层模型)
+
+借鉴认知心理学，记忆分为三层：
+
+| 层级 | 实现 | 机制 |
+|------|------|------|
+| **短期记忆** | `chat_messages` (最近 20 条) | 滑动窗口 + Summary Buffer (LLM 摘要压缩旧消息) |
+| **长期记忆** | `conversation_memories` + ChromaDB | LLM 判断触发 → 提取 ≤3 条 → 向量索引 → 混合排序召回 |
+| **反思** | `memory_reflection.py` | ≥20 条记忆时异步触发，生成高阶洞察 (insight) |
+
+**检索公式**: `Score = 0.3×recency + 0.5×relevance + 0.2×importance`
+**降级策略**: ChromaDB 不可用 → SQLite keyword LIKE; LLM 不可用 → 字符数阈值
 
 ## 两条巡检路径
 
@@ -186,7 +202,7 @@ python scripts/launch_local_llm.py
 
 # 终端 2: 启动 FastAPI
 conda activate building-agent
-uvicorn api.main:app --port 8000
+uvicorn api.main:app --port 8001
 ```
 
 ### 前端 (Vue 3)
@@ -221,7 +237,7 @@ npm run dev     # http://localhost:5173 (代理 /api → :8000)
 # 后端
 cd backend
 python scripts/launch_local_llm.py      # 启动本地 LLM 服务
-uvicorn api.main:app --port 8000        # FastAPI
+uvicorn api.main:app --port 8001        # FastAPI
 python scripts/build_rag.py             # 构建 RAG 向量库
 python -m pytest tests/ -v              # 测试
 

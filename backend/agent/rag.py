@@ -338,3 +338,100 @@ def _parse_floor_num(floor: str) -> int:
     import re
     match = re.search(r'(\d+)', str(floor))
     return int(match.group(1)) if match else 0
+
+
+# ─── Memory 向量存储 ──────────────────────────────────────────────
+
+_MEMORY_COLLECTION = "building_memories"
+
+
+def _get_memory_vs() -> Chroma | None:
+    """获取 Memory 专用的 ChromaDB 集合。不可用时返回 None。"""
+    try:
+        return Chroma(
+            collection_name=_MEMORY_COLLECTION,
+            persist_directory=str(CHROMA_DB_DIR),
+            embedding_function=_embedding,
+        )
+    except Exception as e:
+        print(f"[Memory-Vector] ChromaDB 连接失败: {e}")
+        return None
+
+
+def index_memory_vector(memory_id: int, content: str, user_id: int, conversation_id: int) -> str | None:
+    """将记忆 Embedding 后存入 ChromaDB，返回 chroma_id。失败返回 None。"""
+    vs = _get_memory_vs()
+    if vs is None:
+        return None
+    try:
+        ids = [f"mem_{memory_id}"]
+        vs.add_texts(
+            texts=[content],
+            metadatas=[{"user_id": user_id, "conversation_id": conversation_id, "memory_id": memory_id}],
+            ids=ids,
+        )
+        return ids[0]
+    except Exception as e:
+        print(f"[Memory-Vector] 索引失败 memory_id={memory_id}: {e}")
+        return None
+
+
+def search_memories_semantic(
+    query: str, user_id: int, conversation_id: int, k: int = 10
+) -> list[dict]:
+    """语义检索记忆 → [{memory_id, score, content}], 按相似度排序。"""
+    vs = _get_memory_vs()
+    if vs is None:
+        return []
+    try:
+        results = vs.similarity_search_with_score(
+            query, k=k * 2,
+            filter={"conversation_id": conversation_id},
+        )
+        seen = set()
+        items = []
+        for doc, score in results:
+            mid = doc.metadata.get("memory_id")
+            if mid is None or mid in seen:
+                continue
+            seen.add(mid)
+            # ChromaDB 返回 L2 distance, 转换为 0-1 相似度
+            relevance = 1.0 / (1.0 + score)
+            items.append({
+                "memory_id": mid,
+                "relevance": round(relevance, 4),
+                "content": doc.page_content[:200],
+            })
+        return items[:k]
+    except Exception as e:
+        print(f"[Memory-Vector] 检索失败: {e}")
+        return []
+
+
+def delete_memory_vector(memory_id: int) -> None:
+    """从 ChromaDB 删除一条记忆向量。"""
+    vs = _get_memory_vs()
+    if vs is None:
+        return
+    try:
+        vs.delete(ids=[f"mem_{memory_id}"])
+    except Exception:
+        pass
+
+
+def migrate_memories_to_chroma(db) -> int:
+    """将 chroma_id=NULL 的记忆逐条回填向量索引。返回迁移条数。"""
+    from db.models import ConversationMemory
+    orphans = db.query(ConversationMemory).filter(ConversationMemory.chroma_id.is_(None)).all()
+    if not orphans:
+        return 0
+    print(f"[Memory-Vector] 开始迁移 {len(orphans)} 条记忆 ...")
+    count = 0
+    for mem in orphans:
+        cid = index_memory_vector(mem.id, mem.content, mem.user_id, mem.conversation_id or 0)
+        if cid:
+            mem.chroma_id = cid
+            count += 1
+    db.commit()
+    print(f"[Memory-Vector] 迁移完成: {count}/{len(orphans)} 条")
+    return count

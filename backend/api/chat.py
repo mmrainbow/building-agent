@@ -333,3 +333,48 @@ async def chat_send_stream(
             db.close()
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+# ── Memory 管理 ────────────────────────────────────────────
+
+@router.get("/memories")
+def list_memories(
+    conversation_id: int = Query(...),
+    user: dict = Depends(get_current_user),
+):
+    """列出当前对话的所有长期记忆。"""
+    from db import SessionLocal, get_conversation
+    from db.models import ConversationMemory
+    db = SessionLocal()
+    try:
+        conv = get_conversation(db, conversation_id)
+        if not conv or conv.user_id != user["user_id"]:
+            raise HTTPException(status_code=403, detail="无权访问")
+        memories = db.query(ConversationMemory).filter(
+            ConversationMemory.conversation_id == conversation_id
+        ).order_by(ConversationMemory.importance.desc(), ConversationMemory.created_at.desc()).all()
+        return [{"id": m.id, "memory_type": m.memory_type, "key": m.key,
+                 "content": m.content, "importance": m.importance,
+                 "created_at": m.created_at.isoformat() if m.created_at else None}
+                for m in memories]
+    finally:
+        db.close()
+
+
+@router.delete("/memories/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_memory(
+    memory_id: int,
+    user: dict = Depends(get_current_user),
+):
+    """删除单条记忆。"""
+    from db import SessionLocal
+    from db.memory_crud import delete_memory
+    from db.models import ConversationMemory
+    db = SessionLocal()
+    try:
+        mem = db.query(ConversationMemory).filter(ConversationMemory.id == memory_id).first()
+        if not mem or mem.user_id != user["user_id"]:
+            raise HTTPException(status_code=403, detail="无权访问")
+        delete_memory(db, memory_id)
+    finally:
+        db.close()

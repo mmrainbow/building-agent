@@ -30,8 +30,8 @@ def save_memory(
     conversation_id: int | None = None,
     importance: float = 0.5,
     chroma_id: str | None = None,
-) -> ConversationMemory:
-    # 按 (user_id, memory_type, key) 去重：有 key 则 upsert，无 key 则新增
+) -> tuple:
+    """保存长期记忆。按 (user_id, memory_type, key) 去重，返回 (memory, created)。"""
     existing = None
     if key:
         existing = (
@@ -45,6 +45,7 @@ def save_memory(
         )
 
     if existing:
+        old = existing.content[:40] if existing.content else ""
         existing.content = content
         existing.importance = importance
         existing.chroma_id = chroma_id
@@ -52,7 +53,9 @@ def save_memory(
             existing.conversation_id = conversation_id
         db.commit()
         db.refresh(existing)
-        return existing
+        if old != content[:40]:
+            print(f"[Memory] 冲突更新 [{key}]: {old}... → {content[:40]}...")
+        return existing, False
 
     mem = ConversationMemory(
         user_id=user_id,
@@ -66,7 +69,16 @@ def save_memory(
     db.add(mem)
     db.commit()
     db.refresh(mem)
-    return mem
+    # 异步写入向量索引（非阻塞，失败不影响主流程）
+    try:
+        from agent.rag import index_memory_vector
+        cid = index_memory_vector(mem.id, content, user_id, conversation_id or 0)
+        if cid:
+            mem.chroma_id = cid
+            db.commit()
+    except Exception:
+        pass
+    return mem, True
 
 
 def get_user_memories(

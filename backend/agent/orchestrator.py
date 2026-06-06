@@ -214,7 +214,7 @@ class ManagerAgent:
 
                 # 本轮调了 generate_report → 终止 ReAct 循环
                 if _report_result is not None:
-                    final_text = _report_result  # 图片已在 report.py 中前置
+                    final_text = re.sub(r'</?div[^>]*>', '', _report_result)
                     if on_step:
                         on_step({"type": "done", "rounds": len(tool_log)})
                     break
@@ -249,8 +249,11 @@ class ManagerAgent:
 
     @staticmethod
     def _strip_img_tags(text: str) -> str:
-        """移除 <img> base64 标签 — 图片已存 ChatImage 表，文本中只保留占位。"""
-        return re.sub(r'<img[^>]+>', '[图]', text)
+        """移除图片相关 HTML — <img> 和 <div> 容器。"""
+        text = re.sub(r'<img[^>]*>', '', text)
+        text = re.sub(r'<div[^>]*>', '', text)
+        text = re.sub(r'</div>', '', text)
+        return text
 
     def _save_turn(
         self,
@@ -284,7 +287,7 @@ class ManagerAgent:
             )
 
     def _extract_memory(self, db: Any, user_id: int, conversation_id: int) -> None:
-        """上下文管理 — 达到阈值时触发 Memory Agent 提取记忆并压缩对话历史。"""
+        """对话后记忆管理：LLM判断 → 提取记忆 → 压缩旧消息为摘要。"""
         from db.chat_crud import add_message, get_recent_messages
         from db.models import ChatMessage
         from llm.memory_agent import get_memory_agent
@@ -293,30 +296,69 @@ class ManagerAgent:
         if len(recent) < 3:
             return
 
+        memory_llm = get_memory_agent()
+
+        # 1. LLM 轻量判断：值得记吗？
+        if self.memory_manager.should_extract(db, conversation_id, memory_llm):
+            n = self.memory_manager.extract_and_save_memory(
+                db, user_id, conversation_id, memory_llm, recent
+            )
+            if n > 0:
+                print(f"[Memory] 本轮提取 {n} 条记忆")
+
+            # 异步触发反思（≥20条记忆时）
+            try:
+                from agent.memory_reflection import maybe_reflect
+                maybe_reflect(db, user_id, conversation_id)
+            except Exception:
+                pass
+        else:
+            total_chars = sum(len(getattr(m, "content", "") or "") for m in recent)
+            threshold = int(os.getenv("MEMORY_EXTRACT_THRESHOLD", "6000"))
+            if total_chars < threshold:
+                return
+
+        # 2. 上下文超阈值 → Summary Buffer 压缩旧消息
+        recent = get_recent_messages(db, conversation_id, limit=50)
         total_chars = sum(len(getattr(m, "content", "") or "") for m in recent)
         threshold = int(os.getenv("MEMORY_EXTRACT_THRESHOLD", "6000"))
 
-        if total_chars < threshold:
-            return
-
-        print(f"[Memory] 上下文 {total_chars}/{threshold} 字符 → 触发 Memory Agent ...")
-        memory_llm = get_memory_agent()
-        self.memory_manager.extract_and_save_memory(
-            db, user_id, conversation_id, memory_llm, recent
-        )
-
-        # 压缩：保留最近 10 条消息，其余替换为摘要
-        if len(recent) > 15:
+        if len(recent) > 15 and total_chars > threshold:
             keep = recent[-10:]
             to_summarize = recent[:-10]
-            char_before = sum(len(getattr(m, "content", "") or "") for m in to_summarize)
-            # 删除旧消息
+            # 用 Memory Agent 生成摘要
+            summary = _generate_summary(memory_llm, to_summarize)
             old_ids = [m.id for m in to_summarize]
             db.query(ChatMessage).filter(ChatMessage.id.in_(old_ids)).delete(synchronize_session=False)
-            # 插入摘要
-            add_message(db, conversation_id, "system",
-                f"[上下文压缩] 已提取 {len(to_summarize)} 条历史消息中的长期记忆，释放约 {char_before} 字符。")
+            add_message(db, conversation_id, "system", f"[历史摘要] {summary}")
             db.commit()
-            after = get_recent_messages(db, conversation_id, limit=50)
+            after = get_recent_messages(db, conversation_id, limit=30)
             new_chars = sum(len(getattr(m, "content", "") or "") for m in after)
-            print(f"[Memory] 压缩完成: {char_before} → 释放, 剩余上下文 {new_chars} 字符")
+            print(f"[Memory] 压缩 {len(to_summarize)} 条 → {len(summary)} 字摘要, 剩余 {new_chars} 字符")
+
+
+def _generate_summary(llm_client, messages: list) -> str:
+    """将旧消息压缩为 100-200 字摘要。失败返回简单占位。"""
+    lines = []
+    for m in messages:
+        role = getattr(m, "role", "")
+        if role == "tool":
+            continue
+        c = (getattr(m, "content", "") or "")[:300]
+        if c.strip():
+            lines.append(f"{role}: {c}")
+    if not lines:
+        return "历史对话记录。"
+    try:
+        resp = llm_client.chat(
+            messages=[
+                {"role": "system", "content": "将以下对话压缩为100-200字摘要，保留关键信息和用户偏好。"},
+                {"role": "user", "content": "\n".join(lines)},
+            ],
+            tools=None,
+            temperature=0,
+            max_tokens=300,
+        )
+        return (resp.get("content") or "历史对话记录。").strip()
+    except Exception:
+        return "历史对话记录。"

@@ -5,6 +5,7 @@
       <div class="conv-actions">
         <el-button size="small" @click="newConv" class="new-btn">+ 新建</el-button>
         <el-button size="small" type="danger" @click="delConv" :disabled="!currentId" class="del-btn">删除</el-button>
+        <el-button size="small" @click="showMemories = true; fetchMemories()" :disabled="!currentId" class="mem-btn" title="Memory">🧠</el-button>
       </div>
       <div v-for="c in conversations" :key="c.id"
         @click="switchConv(c.id)"
@@ -79,6 +80,21 @@
       </div>
     </div>
 
+    <!-- Memory 抽屉 -->
+    <el-drawer v-model="showMemories" title="对话记忆" size="360px" direction="rtl">
+      <div v-if="!memories.length" class="mem-empty">暂无长期记忆</div>
+      <div v-for="m in memories" :key="m.id" class="mem-item">
+        <div class="mem-header">
+          <el-tag size="small" :type="m.memory_type==='insight'?'warning':m.memory_type==='preference'?'primary':'info'">
+            {{ m.memory_type }}
+          </el-tag>
+          <span class="mem-imp">{{ '★'.repeat(Math.round((m.importance||5)/2)) }}</span>
+          <el-button size="small" text @click="delMemory(m.id)" class="mem-del">×</el-button>
+        </div>
+        <div class="mem-content">{{ m.content }}</div>
+      </div>
+    </el-drawer>
+
     <!-- 图片灯箱 -->
     <div class="img-lightbox" v-if="lightboxSrc" @click="lightboxSrc = null">
       <span class="lightbox-close">×</span>
@@ -121,6 +137,16 @@ const memDasharray = computed(() => {
   const filled = (pct / 100) * len
   return `${filled} ${len - filled}`
 })
+const showMemories = ref(false)
+const memories = ref([])
+async function fetchMemories() {
+  if (!currentId.value) return
+  try { const r = await client.get('/chat/memories', { params: { conversation_id: currentId.value } }); memories.value = r.data } catch(e) {}
+}
+async function delMemory(id) {
+  try { await client.delete(`/chat/memories/${id}`); memories.value = memories.value.filter(m => m.id !== id) } catch(e) {}
+}
+
 async function fetchAgentStatus() {
   if (!currentId.value) {
     agentStatus.value = { manager: { status: 'online' }, report: { status: 'online' }, memory: { pct: 0, threshold: 60000, total_chars: 0 } }
@@ -182,7 +208,8 @@ async function delConv() {
 function renderMarkdown(text) {
   if (!text) return text
   let html = text
-  // 清理裸 base64 / 幻觉 Markdown 图片
+  // 清理 <div> 容器（图片应由 <img> 直接展示）和裸 base64
+  html = html.replace(/<\/?div[^>]*>/gi, '')
   html = html.replace(/!\[.*?\]\(data:image[^)]*(?:\))?/g, '')
   html = html.replace(/(?<!<img[^>]*?)data:image\S+/g, '')
   // 转义 HTML（保留 <img>）
@@ -255,6 +282,7 @@ async function send() {
       sending.value = false
       chatAPI.listConversations().then(c => conversations.value = c)
       fetchAgentStatus()
+      if (showMemories.value) fetchMemories()
       nextTick(() => scrollBottom())
     },
     (err) => {
@@ -496,6 +524,14 @@ function scrollBottom() {
 }
 
 /* ── 动画 ── */
+.mem-btn { --el-button-bg-color: #f0ebe3; --el-button-border-color: #e0d9ce; }
+.mem-empty { color: #b0a89e; text-align: center; margin-top: 40px; }
+.mem-item { padding: 10px 0; border-bottom: 1px solid #f0ebe3; }
+.mem-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.mem-imp { color: #d4a574; font-size: 12px; }
+.mem-del { color: #c5bdaf; margin-left: auto; }
+.mem-content { color: #4a4238; font-size: 13px; line-height: 1.6; }
+
 .dot-pulse::after { content: ''; animation: dots 1.5s steps(4,end) infinite; }
 @keyframes dots { 0%{content:''} 25%{content:'.'} 50%{content:'..'} 75%{content:'...'} 100%{content:''} }
 </style>

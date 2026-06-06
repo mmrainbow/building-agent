@@ -14,6 +14,7 @@
 | 阶段1.5: 本地 LLM 服务化 + 架构精简 | **已完成** | 2026-06-02 |
 | 阶段2: 多 Agent 协同 | **已完成** | 2026-06-03 |
 | 阶段2.5: 前后端分离 (Vue 3 + FastAPI) | **已完成** | 2026-06-03 |
+| 阶段2.6: Memory 系统重构 (三层模型) | **已完成** | 2026-06-06 |
 | 阶段3: 反馈系统 | 待开始 | — |
 | 阶段4: 服务化部署 (Docker/CICD) | 待开始 | — |
 
@@ -39,7 +40,7 @@
 ├─────────────────────────────────────────────────────────┤
 │  Manager Agent (通义千问 API)                            │
 │  ├── agent/orchestrator.py   ReAct 推理 + 工具调度        │
-│  ├── agent/memory_manager.py 双层记忆管理                 │
+│  ├── agent/memory_manager.py 三层记忆管理 (LLM提取+向量检索)│
 │  └── llm/client.py           OpenAI 兼容客户端            │
 ├─────────────────────────────────────────────────────────┤
 │  工具层 (6 个 Tool)                                     │
@@ -492,6 +493,16 @@ POST   /api/chat/rag               # 基于知识库的问答 (已有 /api/chat�
 
 **技术栈**: Vue 3 + Vite + Element Plus + Pinia, FastAPI + SSE + CORS
 
+### 阶段2.6: Memory 系统重构 (1天) ✅ 已完成 2026-06-06
+
+**目标**: 将双层记忆升级为三层认知记忆模型。
+
+- [x] **Memory Consolidation** — LLM 轻量判断是否值得提取 + Memory Agent 一次性提取 ≤3 条记忆 + 冲突检测 (同 key upsert) — **复杂度: 中**
+- [x] **Summary Buffer** — 旧消息先用 Memory Agent 生成 100-200 字摘要再删除，替代直接删除 — **复杂度: 中**
+- [x] **Vector Retrieval** — ChromaDB 语义检索 + 混合排序公式 `0.3R+0.5R+0.2I`，不可用回退 SQLite LIKE — **复杂度: 高**
+- [x] **Reflection** — ≥20 条记忆时异步触发 LLM 生成高阶洞察 (insight)，importance≥8 — **复杂度: 中**
+- [x] **Memory 面板** — 前端 Chat 页面 🧠 抽屉，查看/删除记忆 — **复杂度: 低**
+
 ### 阶段3: 反馈系统 (1周, 1人)
 
 **目标**: 收集用户纠错和评分数据，建立数据飞轮。
@@ -707,7 +718,8 @@ building-agent/
 ├── .env                         # ✅ 多Agent环境配置
 ├── agent/                       # ✅ Manager Agent
 │   ├── orchestrator.py          # ✅ ReAct Agent 编排
-│   ├── memory_manager.py        # ✅ 双层记忆
+│   ├── memory_manager.py        # ✅ 三层记忆 (LLM提取+向量检索+混合排序)
+│   ├── memory_reflection.py     # ✅ 反思模块 (≥20条记忆生成洞察)
 │   ├── rag.py                   # ✅ ChromaDB 检索
 │   └── skills/
 │       └── inspection_skill.py  # ✅ 多图巡检工作流

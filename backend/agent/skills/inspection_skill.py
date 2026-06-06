@@ -302,15 +302,8 @@ class InspectionSkill:
                 data = resp.json()
                 elapsed = data.get("elapsed_seconds", 0)
                 print(f"[InspectionSkill] Report Agent 生成成功 ({elapsed:.1f}s)")
-                # 标注图嵌入报告 — 横向缩略图条，点击放大
-                items = "".join(
-                    f'<img src="data:image/jpeg;base64,{b64}"'
-                    f' style="height:120px;border-radius:6px;cursor:pointer;flex-shrink:0"'
-                    f' onclick="this.style.height=this.style.height===\'120px\'?\'auto\':\'120px\'">'
-                    for b64 in annotated_b64_list
-                )
-                report = f'<div style="display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;padding-bottom:4px">{items}</div>\n{data["report"]}'
-                return report, annotated_b64_list
+                # 标注图由前端 Gallery 单独展示，报告文本不嵌入 HTML
+                return data["report"], annotated_b64_list
         except Exception as e:
             print(f"[InspectionSkill] Report Agent 不可用: {e}")
 
