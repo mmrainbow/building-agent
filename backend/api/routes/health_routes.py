@@ -90,7 +90,7 @@ def agent_status(
         total_chars = sum(len(getattr(m, "content", "") or "") for m in msgs)
     finally:
         db.close()
-    threshold = int(os.getenv("MEMORY_EXTRACT_THRESHOLD", "60000"))
+    threshold = int(os.getenv("MEMORY_EXTRACT_THRESHOLD", "6000"))
 
     return {
         "manager": {"status": "online", "model": os.getenv("LLM_MODEL", "qwen3.6-flash")},

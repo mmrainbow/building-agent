@@ -5,7 +5,7 @@ import re
 from typing import Any
 
 from db.chat_crud import get_recent_messages
-from db.memory_crud import save_memory, search_memories_by_keyword
+from db.memory_crud import record_memory_access, save_memory, search_memories_by_keyword
 
 MEMORY_EXTRACTION_SYSTEM_PROMPT = """你是记忆提取分析员，专门从建筑巡检对话中提炼可长期复用的信息。
 
@@ -39,16 +39,15 @@ class MemoryManager:
         conversation_id: int,
         current_query: str,
     ) -> dict:
-        """拉取近期消息与关键词相关的长期记忆。"""
-        # get_recent_messages 在 chat_crud 内已用 [::-1] 转为时间正序
+        """拉取近期消息 + 当前对话的长期记忆。"""
         recent_messages = get_recent_messages(db, conversation_id, limit=20)
 
-        memories: list = []
-        query = (current_query or "").strip()
-        if query:
-            memories = search_memories_by_keyword(
-                db, user_id=user_id, keyword=query, conversation_id=conversation_id, limit=10
-            )
+        # 长期记忆：仅限当前对话内，按 importance 排序
+        memories = search_memories_by_keyword(
+            db, user_id=user_id, keyword="", conversation_id=conversation_id, limit=10
+        )
+        for m in memories:
+            record_memory_access(db, m.id)
 
         return {
             "recent_messages": recent_messages,
@@ -108,8 +107,9 @@ class MemoryManager:
                 conversation_id=conversation_id,
                 importance=0.6,
             )
-        except Exception:
-            return
+            print(f"[Memory] 提取成功: [{payload['memory_type']}] {payload['content'][:60]}...")
+        except Exception as e:
+            print(f"[Memory] 提取失败: {e}")
 
 
 def _parse_memory_payload(text: str) -> dict | None:

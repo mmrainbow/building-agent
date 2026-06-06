@@ -16,6 +16,7 @@ Report Agent:            本地 Qwen2.5-VL       — generate_report 工具调�
 
 import json
 import os
+import re
 import time
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -246,6 +247,11 @@ class ManagerAgent:
 
     # ── 持久化 ──────────────────────────────────────────
 
+    @staticmethod
+    def _strip_img_tags(text: str) -> str:
+        """移除 <img> base64 标签 — 图片已存 ChatImage 表，文本中只保留占位。"""
+        return re.sub(r'<img[^>]+>', '[图]', text)
+
     def _save_turn(
         self,
         db: Any,
@@ -273,27 +279,44 @@ class ManagerAgent:
                 db,
                 conversation_id,
                 "assistant",
-                assistant_msg,
+                self._strip_img_tags(assistant_msg),
                 metadata=meta,
             )
 
     def _extract_memory(self, db: Any, user_id: int, conversation_id: int) -> None:
-        """上下文 Token 管理 — 仅在接近窗口上限时触发 Memory Agent 压缩提取。"""
-        from db.chat_crud import get_recent_messages
+        """上下文管理 — 达到阈值时触发 Memory Agent 提取记忆并压缩对话历史。"""
+        from db.chat_crud import add_message, get_recent_messages
+        from db.models import ChatMessage
         from llm.memory_agent import get_memory_agent
 
         recent = get_recent_messages(db, conversation_id, limit=50)
         if len(recent) < 3:
             return
 
-        # 估算当前上下文大小 (1 中文字符 ≈ 1.5 tokens)
         total_chars = sum(len(getattr(m, "content", "") or "") for m in recent)
         threshold = int(os.getenv("MEMORY_EXTRACT_THRESHOLD", "6000"))
 
         if total_chars < threshold:
-            return  # 未达阈值，跳过提取
+            return
 
+        print(f"[Memory] 上下文 {total_chars}/{threshold} 字符 → 触发 Memory Agent ...")
         memory_llm = get_memory_agent()
         self.memory_manager.extract_and_save_memory(
             db, user_id, conversation_id, memory_llm, recent
         )
+
+        # 压缩：保留最近 10 条消息，其余替换为摘要
+        if len(recent) > 15:
+            keep = recent[-10:]
+            to_summarize = recent[:-10]
+            char_before = sum(len(getattr(m, "content", "") or "") for m in to_summarize)
+            # 删除旧消息
+            old_ids = [m.id for m in to_summarize]
+            db.query(ChatMessage).filter(ChatMessage.id.in_(old_ids)).delete(synchronize_session=False)
+            # 插入摘要
+            add_message(db, conversation_id, "system",
+                f"[上下文压缩] 已提取 {len(to_summarize)} 条历史消息中的长期记忆，释放约 {char_before} 字符。")
+            db.commit()
+            after = get_recent_messages(db, conversation_id, limit=50)
+            new_chars = sum(len(getattr(m, "content", "") or "") for m in after)
+            print(f"[Memory] 压缩完成: {char_before} → 释放, 剩余上下文 {new_chars} 字符")

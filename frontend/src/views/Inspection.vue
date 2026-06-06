@@ -1,5 +1,5 @@
 <template>
-  <div class="inspection-page">
+  <div class="inspection-page" @click="onPageClick">
     <div class="inspect-header">
       <h3 class="inspect-title">图像巡检</h3>
       <el-tag type="info" v-if="!running && !result" class="inspect-tag">至少需要 3 张图片</el-tag>
@@ -50,7 +50,7 @@
           <div v-for="(b64, i) in result.annotated_images" :key="i" class="gallery-item">
             <img :src="'data:image/jpeg;base64,'+b64"
               class="gallery-img"
-              @click="viewImage('data:image/jpeg;base64,'+b64)" />
+              style="cursor:pointer" />
             <div class="gallery-label">图{{ i+1 }} 标注结果</div>
           </div>
         </div>
@@ -62,9 +62,11 @@
       </div>
     </div>
 
-    <el-dialog v-model="previewVisible" width="80%">
-      <img :src="previewSrc" class="preview-img" />
-    </el-dialog>
+    <!-- 图片灯箱 -->
+    <div class="img-lightbox" v-if="lightboxSrc" @click="lightboxSrc = null">
+      <span class="lightbox-close">×</span>
+      <img :src="lightboxSrc" @click.stop />
+    </div>
 
     <div v-if="error" class="error-box">{{ error }}</div>
   </div>
@@ -78,9 +80,14 @@ const imgs = ref([])
 const running = ref(false)
 const result = ref(null)
 const error = ref('')
-const previewVisible = ref(false)
-const previewSrc = ref('')
+const lightboxSrc = ref(null)
 const fileInput = ref(null)
+
+function onPageClick(e) {
+  if (e.target.tagName === 'IMG' && e.target.src.startsWith('data:image')) {
+    lightboxSrc.value = e.target.src
+  }
+}
 
 function onFilesChange(e) {
   for (const f of e.target.files) {
@@ -93,19 +100,27 @@ function onDrop(e) {
   }
 }
 function clearAll() { imgs.value = []; result.value = null; error.value = '' }
-function viewImage(src) { previewSrc.value = src; previewVisible.value = true }
 
 function formatReport(text) {
   if (!text) return ''
-  // 保留 <img> 标签，其他 HTML 实体转义
-  const imgTags = []
-  const safe = text.replace(/<img[^>]+>/gi, (m) => { imgTags.push(m); return `__IMG_${imgTags.length - 1}__` })
-  const escaped = safe
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/__IMG_(\d+)__/g, (_, i) => imgTags[+i])
-    .replace(/\n\n/g, '</p><p>')
-    .replace(/\n/g, '<br>')
-  return `<p>${escaped}</p>`
+  let html = text
+  // 保留 <img>，其余 HTML 转义
+  const imgs = []; html = html.replace(/<img[^>]+>/gi, m => { imgs.push(m); return `\x00IMG${imgs.length-1}\x00` })
+  html = html.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  html = html.replace(/\x00IMG(\d+)\x00/g, (_,i) => imgs[+i])
+  // Markdown → HTML
+  html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>')
+  html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>')
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  html = html.replace(/((?:^- .+\n?)+)/gm, m => '<ul>' + m.trim().split('\n').map(l => '<li>'+l.replace(/^- /,'')+'</li>').join('') + '</ul>')
+  html = html.replace(/((?:^\d+\. .+\n?)+)/gm, m => '<ol>' + m.trim().split('\n').map(l => '<li>'+l.replace(/^\d+\. /,'')+'</li>').join('') + '</ol>')
+  html = html.replace(/\n\n+/g, '</p><p>')
+  html = html.replace(/\n/g, '<br>')
+  html = '<p>' + html + '</p>'
+  html = html.replace(/<p><\/p>/g, '')
+  html = html.replace(/<p>(<[ou]l>)/g, '$1')
+  html = html.replace(/(<\/[ou]l>)<\/p>/g, '$1')
+  return html
 }
 
 async function runInspection() {
@@ -197,6 +212,27 @@ async function runInspection() {
   color: #c97b7b; margin-top: 14px;
   padding: 14px; background: #fdf2f2;
   border-radius: 12px; border: 1px solid #f0d0d0;
+}
+
+/* ── 图片灯箱 ── */
+.img-lightbox {
+  position: fixed; top: 0; right: 0; bottom: 0; left: 0;
+  background: rgba(0,0,0,0.75);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999; cursor: pointer;
+}
+.lightbox-close {
+  position: fixed; top: 20px; right: 24px;
+  color: #fff; font-size: 32px; font-weight: 300;
+  cursor: pointer; z-index: 10000;
+  width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.4); border-radius: 50%;
+}
+.lightbox-close:hover { background: rgba(0,0,0,0.6); }
+.img-lightbox img {
+  max-width: 85vw; max-height: 85vh;
+  border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+  cursor: default;
 }
 
 @keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }

@@ -98,8 +98,7 @@ class ReportAgentTool:
                 if images_b64:
                     items = "".join(
                         f'<img src="data:image/jpeg;base64,{b64}"'
-                        f' style="height:120px;border-radius:6px;cursor:pointer;flex-shrink:0"'
-                        f' onclick="this.style.height=this.style.height===\'120px\'?\'auto\':\'120px\';this.style.maxWidth=this.style.maxWidth===\'120px\'?\'100%\':\'120px\'">'
+                        f' style="height:120px;border-radius:6px;cursor:pointer;flex-shrink:0">'
                         for b64 in images_b64
                     )
                     report_text = (
