@@ -67,6 +67,8 @@ backend/                Python 后端
   scripts/
     launch_local_llm.py  Report Agent 服务启动
     build_rag.py         RAG 向量库构建
+  utils/
+    materials.py          材质英译中映射
   model_weights/         CV 模型权重 (5 个文件, gitignore)
   tests/                 测试 (12 个文件)
 ```
@@ -273,7 +275,7 @@ npm run dev     # http://localhost:5173 (代理 /api → :8000)
 #### 6. 本地模型启动与材质中文化
 - `backend/scripts/launch_local_llm.py` 修复 `--model` 参数被默认路径覆盖的问题。
 - `backend/llm/local_vl_model.py` 改为创建客户端时读取最新 `LOCAL_VL_MODEL_PATH`。
-- 新增 `backend/materials.py`，统一维护材质英文标签到中文名称的映射。
+- 新增 `backend/utils/materials.py`，统一维护材质英文标签到中文名称的映射。
 - 新巡检入库、历史展示、导出报告、管理员看板、智能问答工具返回均统一显示中文材质。
 - 已知英文标签包括 `Stone Hanging`、`Mortar`、`Glass Curtain Wall`、`Real Stone Paint`、`Coating`、`Aluminum Plate`、`Face Brick`、`Mosaic`。
 

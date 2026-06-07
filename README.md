@@ -114,27 +114,36 @@ cd frontend && npm run dev
 ### 巡检（需 JWT）
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/inspection/multi` | 多图巡检 |
+| POST | `/inspection/multi` | 多图巡检 (SSE 流式进度) |
 | GET | `/history` | 巡检列表（分页） |
 | GET | `/history/{id}` | 单条详情 |
-| GET | `/history/{id}/export` | 导出 Excel |
-| GET | `/statistics` | 统计汇总 |
+| GET | `/history/{id}/export?format=xlsx\|docx\|md` | 导出报告（含标注图） |
+| GET | `/history/images/{id}/{kind}` | 原图/标注图 |
 
 ### 对话（需 JWT）
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/chat/send` | 发送消息（支持多图） |
-| POST | `/chat/send/stream` | SSE 流式问答（支持多图） |
+| POST | `/chat/send/stream` | SSE 流式问答（CoT 实时推送） |
 | GET | `/chat/conversations` | 对话列表 |
-| GET | `/chat/conversations/{id}` | 对话详情 |
+| GET | `/chat/conversations/{id}` | 对话详情（含反馈） |
 | DELETE | `/chat/conversations/{id}` | 删除对话 |
+| GET | `/chat/memories` | 对话记忆列表 |
+| DELETE | `/chat/memories/{id}` | 删除单条记忆 |
+| POST | `/chat/messages/{id}/feedback` | AI 回复评分/反馈 |
 
-### 其他
+### 管理（需 admin）
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/admin/users` | 用户列表 |
+| GET | `/admin/dashboard` | 统计看板 |
+| GET | `/admin/feedbacks` | 反馈列表 |
+
+### 运维
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/health` | 健康检查 |
 | GET | `/agent/status` | Agent 监控 |
-| GET | `/admin/users` | 用户列表（admin） |
 
 ---
 
@@ -148,5 +157,8 @@ cd frontend && npm run dev
 | `REPORT_AGENT_URL` | Report Agent 地址 | `http://localhost:8000` |
 | `INSPECTION_DB_URL` | 数据库连接 | `sqlite:///./inspection.db` |
 | `JWT_SECRET_KEY` | JWT 签名密钥 | 必填 |
+| `MEMORY_EXTRACT_THRESHOLD` | 记忆提取阈值 | `6000` |
+| `INIT_USERNAME` | 初始用户名 | `user123` |
+| `INIT_PASSWORD` | 初始用户密码 | `user123` |
 | `INIT_ADMIN_USERNAME` | 初始管理员 | `admin` |
-| `INIT_ADMIN_PASSWORD` | 初始管理员密码 | 必填 |
+| `INIT_ADMIN_PASSWORD` | 初始管理员密码 | `admin123456` |

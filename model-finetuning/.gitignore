@@ -1,0 +1,31 @@
+﻿# 本目录只提交可公开的代码和文档
+# 不提交原始图片、训练数据、评测结果、模型权重、本机配置或密钥
+
+.env
+*.env
+__pycache__/
+*.py[cod]
+*.log
+
+# 本机配置
+config.json
+dataset-builder/config/config.json
+
+# 数据与输出
+data/
+results/
+reports/
+outputs/
+output/
+dataset-builder/output/
+
+# 大模型与权重
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.gguf
+*.onnx
+checkpoint-*/
+qwen*_merged/
+*_merged/

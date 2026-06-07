@@ -1,10 +1,11 @@
-# 默认忽略根目录下所有内容，只上传下面白名单中的项目
+﻿# 默认忽略根目录下所有内容，只上传白名单中的项目
 /*
 
 # 允许上传的根目录文件 / 文件夹
 !/.gitignore
 !/backend/
 !/frontend/
+!/model-finetuning/
 !/AGENT.md
 !/DEVELOPMENT_PLAN.md
 !/README.md
@@ -22,6 +23,7 @@ __pycache__/
 # ── 前端构建产物 ──
 frontend/node_modules/
 frontend/dist/
+frontend/.vite/
 
 # ── 后端敏感 / 大文件 ──
 backend/.env
@@ -34,4 +36,22 @@ backend/rag_data/
 backend/chat_images/
 backend/inspection.db
 backend/outputs/
-frontend/.vite/
+
+# ── 模型微调模块：只提交代码和文档，不提交数据、结果、权重、本机配置 ──
+model-finetuning/.env
+model-finetuning/*.env
+model-finetuning/data/
+model-finetuning/results/
+model-finetuning/reports/
+model-finetuning/outputs/
+model-finetuning/output/
+model-finetuning/dataset-builder/output/
+model-finetuning/dataset-builder/config/config.json
+model-finetuning/**/*.pt
+model-finetuning/**/*.pth
+model-finetuning/**/*.bin
+model-finetuning/**/*.safetensors
+model-finetuning/**/*.gguf
+model-finetuning/**/*.onnx
+model-finetuning/**/checkpoint-*/
+model-finetuning/**/*_merged/

@@ -10,7 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from materials import material_to_zh
+from utils.materials import material_to_zh
 
 from .schemas import DEFECT_SCHEMA, MATERIAL_SCHEMA, FLOOR_SCHEMA, EXTENSION_SCHEMA
 
