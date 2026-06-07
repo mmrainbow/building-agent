@@ -12,7 +12,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from materials import material_to_zh, replace_material_terms
+from utils.materials import material_to_zh, replace_material_terms
 
 MODEL_DIR = Path(__file__).parent.parent.parent / "model_weights"
 MIN_IMAGES = 3

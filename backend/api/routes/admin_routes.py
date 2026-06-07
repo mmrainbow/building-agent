@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from api.auth import require_admin
 from api.schemas import UserResponse
 from db import get_db
-from materials import material_to_zh
+from utils.materials import material_to_zh
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from api.auth import decode_token, get_current_user
 from api.schemas import RecordResponse
 from db import get_all_records, get_db, get_record_detail, get_user_by_id, get_user_records
-from materials import material_to_zh, replace_material_terms
+from utils.materials import material_to_zh, replace_material_terms
 
 router = APIRouter(tags=["history"])
 
