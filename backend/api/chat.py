@@ -168,6 +168,14 @@ def conversation_detail(
         if conv.user_id != user["user_id"]:
             raise HTTPException(status_code=403, detail="无权访问此对话")
         msgs = get_conversation_messages(db, conv_id, limit=limit)
+        # 批量加载 feedback（ChatMessage 无 backref 关系）
+        msg_ids = [m.id for m in msgs]
+        fb_map = {}
+        if msg_ids:
+            from db.models import Feedback
+            fbs = db.query(Feedback).filter(Feedback.message_id.in_(msg_ids)).all()
+            for fb in fbs:
+                fb_map[fb.message_id] = fb
         return ConversationDetail(
             id=conv.id,
             title=conv.title,
@@ -177,7 +185,7 @@ def conversation_detail(
                     "role": m.role,
                     "content": m.content,
                     "metadata": m.metadata_,
-                    "feedback": _format_feedback(m.feedbacks[0]) if m.feedbacks else None,
+                    "feedback": _format_feedback(fb_map.get(m.id)),
                     "created_at": m.created_at.isoformat() if m.created_at else None,
                 }
                 for m in msgs

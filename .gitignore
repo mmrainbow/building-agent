@@ -34,3 +34,4 @@ backend/rag_data/
 backend/chat_images/
 backend/inspection.db
 backend/outputs/
+frontend/.vite/

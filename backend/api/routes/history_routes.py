@@ -211,6 +211,10 @@ def history_export(
 
     if format == "docx":
         from docx import Document
+        from docx.shared import Inches
+        import cv2
+        import numpy as np
+        from agent.skills.inspection_skill import draw_defects
 
         doc = Document()
         doc.add_heading(f"建筑外立面巡检报告 #{record.id}", level=1)
@@ -222,18 +226,31 @@ def history_export(
         doc.add_heading("报告正文", level=2)
         doc.add_paragraph(record.report or "无报告")
         doc.add_heading("图片检测明细", level=2)
-        for img in payload["data"]["images"]:
-            doc.add_heading(img["name"], level=3)
-            doc.add_paragraph(f"材质：{img.get('material') or '未知'}")
-            doc.add_paragraph(f"楼层：{img.get('floor') or '未知'}")
-            doc.add_paragraph(f"加层：{img.get('has_extension') or '未知'}")
-            defects = img.get("defects") or []
+        for img_entry in (record.images or []):
+            img_data = payload["data"]["images"]
+            img_meta = next((m for m in img_data if m["id"] == img_entry.id), {})
+            doc.add_heading(img_meta.get("name", f"巡检图"), level=3)
+            doc.add_paragraph(f"材质：{img_meta.get('material') or '未知'}")
+            doc.add_paragraph(f"楼层：{img_meta.get('floor') or '未知'}")
+            doc.add_paragraph(f"加层：{img_meta.get('has_extension') or '未知'}")
+            defects = img_meta.get("defects") or []
             doc.add_paragraph(f"隐患数：{len(defects)}")
             for d in defects:
-                doc.add_paragraph(
-                    f"{d.get('type')}，像素面积约 {float(d.get('area') or 0):.1f}px²",
-                    style="List Bullet",
-                )
+                doc.add_paragraph(f"{d.get('type')}，像素面积约 {float(d.get('area') or 0):.1f}px²", style="List Bullet")
+            # 嵌入标注图
+            if img_entry.chat_image and img_entry.chat_image.data:
+                try:
+                    nparr = np.frombuffer(img_entry.chat_image.data, np.uint8)
+                    bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    if bgr is not None:
+                        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                        annotated = draw_defects(rgb, defects)
+                        _, jpg = cv2.imencode(".jpg", cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR))
+                        img_stream = io.BytesIO(jpg.tobytes())
+                        doc.add_picture(img_stream, width=Inches(5.5))
+                        img_stream.close()
+                except Exception:
+                    pass
         buf = io.BytesIO()
         doc.save(buf)
         buf.seek(0)

@@ -45,6 +45,16 @@
       <div class="result-actions">
         <el-button @click="clearAll">← 新一轮巡检</el-button>
         <el-button @click="runInspection" :loading="running">重新检测</el-button>
+        <el-dropdown @command="(fmt) => exportReport(result.record_id, fmt)" style="margin-left:8px">
+          <el-button type="success" size="default">导出报告</el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="docx">Word 文档</el-dropdown-item>
+              <el-dropdown-item command="xlsx">Excel</el-dropdown-item>
+              <el-dropdown-item command="md">Markdown</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <span class="record-id">巡检 #{{ result.record_id }}</span>
       </div>
 
@@ -105,7 +115,9 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { ElMessage } from 'element-plus'
 import { inspectionAPI } from '../api/inspection'
+import { historyAPI } from '../api/history'
 import ImgLightbox from '../components/ImgLightbox.vue'
 import { renderMarkdown } from '../utils/markdown'
 
@@ -139,6 +151,9 @@ function clearAll() { imgs.value = []; result.value = null; error.value = ''; pr
 
 function formatReport(text) {
   return renderMarkdown(text, { stripHtml: true })
+}
+async function exportReport(id, format) {
+  try { await historyAPI.exportFile(id, format) } catch(e) { ElMessage.error('导出失败') }
 }
 
 async function runInspection() {

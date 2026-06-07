@@ -36,7 +36,7 @@
           🏗 上传建筑图片 + 输入问题开始巡检
         </div>
 
-        <div v-for="(msg, i) in messages" :key="i" class="msg-row">
+        <div v-for="msg in messages" :key="msg.id || msg.content" class="msg-row">
           <div v-if="msg.role==='user'" class="msg-user-wrap">
             <div v-if="msg.images?.length" class="msg-img-row">
               <img v-for="(url, i) in msg.images" :key="i" :src="url" class="msg-img" />
@@ -216,8 +216,8 @@ async function switchConv(id) {
         role: m.role,
         content: m.content || '',
         html: m.role === 'assistant' && isHtmlContent(m.content) ? renderMarkdown(m.content) : null,
-        images: meta.has_image
-          ? Array.from({length: meta.image_count || 1}, (_, i) => `/api/chat/images/${m.id}?idx=${i}`)
+        images: meta.has_image && meta.image_count > 0
+          ? Array.from({length: meta.image_count}, (_, i) => `/api/chat/images/${m.id}?idx=${i}`)
           : null,
         toolCalls: meta.tool_calls || null,
         feedbackRating: m.feedback?.rating || null,
