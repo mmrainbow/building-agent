@@ -46,7 +46,7 @@
           <el-descriptions-item label="加层">{{ detail.has_extension || '-' }}</el-descriptions-item>
         </el-descriptions>
         <h4 class="detail-subtitle">报告正文</h4>
-        <div class="detail-report">{{ detail.report || '无报告' }}</div>
+        <div class="detail-report" v-html="renderReport(detail.report)"></div>
         <h4 v-if="detail.images?.length" class="detail-subtitle">图片预览</h4>
         <div v-if="detail.images?.length" class="image-grid">
           <div v-for="img in detail.images" :key="img.id" class="image-card">
@@ -82,6 +82,7 @@ import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { historyAPI } from '../api/history'
 import client from '../api/index'
+import { renderMarkdown } from '../utils/markdown'
 
 const records = ref([])
 const dialog = ref(false)
@@ -112,6 +113,9 @@ function withToken(url) {
   const token = localStorage.getItem('token')
   return token ? `${url}?token=${encodeURIComponent(token)}` : url
 }
+function renderReport(text) {
+  return renderMarkdown(text || '无报告', { stripHtml: true })
+}
 async function exportFile(id, format) {
   try { await historyAPI.exportFile(id, format) } catch(e) { ElMessage.error('导出失败') }
 }
@@ -141,7 +145,6 @@ onMounted(load)
 }
 
 .detail-body {
-  white-space: pre-wrap;
   line-height: 2;
   max-height: 70vh;
   overflow-y: auto;

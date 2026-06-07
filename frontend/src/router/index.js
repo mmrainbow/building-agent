@@ -12,7 +12,6 @@ const routes = [
       { path: '/chat', name: 'Chat', component: () => import('../views/Chat.vue') },
       { path: '/inspection', name: 'Inspection', component: () => import('../views/Inspection.vue') },
       { path: '/history', name: 'History', component: () => import('../views/History.vue') },
-      { path: '/monitor', name: 'Monitor', component: () => import('../views/AgentMonitor.vue') },
       { path: '/feedback', name: 'FeedbackAdmin', component: () => import('../views/FeedbackAdmin.vue'), meta: { adminOnly: true } },
     ],
   },

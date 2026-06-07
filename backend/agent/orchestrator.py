@@ -26,7 +26,6 @@ from agent.context import (
     SYSTEM_PROMPT,
     history_to_messages,
     make_user_message,
-    strip_base64_for_llm,
 )
 from agent.memory_manager import MemoryManager
 from llm.tools import execute_tool, get_tool_schemas
@@ -150,6 +149,8 @@ class ManagerAgent:
                 db.flush()
                 _chat_image_ids.append(_pre_img.id)
             _user_msg.metadata_["chat_image_ids"] = _chat_image_ids
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(_user_msg, "metadata_")  # JSON 列就地修改需显式标记
             db.flush()
 
         # 3. ReAct 循环
@@ -209,7 +210,7 @@ class ManagerAgent:
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tc["id"],
-                            "content": strip_base64_for_llm(result[:3000]),
+                            "content": re.sub(r'data:image[^"\')\s]+', 'data:image/...', result[:3000]),
                         })
 
                 # 本轮调了 generate_report → 终止 ReAct 循环

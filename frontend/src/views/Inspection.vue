@@ -97,11 +97,7 @@
       </div>
     </div>
 
-    <!-- 图片灯箱 -->
-    <div class="img-lightbox" v-if="lightboxSrc" @click="lightboxSrc = null">
-      <span class="lightbox-close">×</span>
-      <img :src="lightboxSrc" @click.stop />
-    </div>
+    <ImgLightbox ref="lightbox" />
 
     <div v-if="error" class="error-box">{{ error }}</div>
   </div>
@@ -110,12 +106,14 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { inspectionAPI } from '../api/inspection'
+import ImgLightbox from '../components/ImgLightbox.vue'
+import { renderMarkdown } from '../utils/markdown'
 
 const imgs = ref([])
 const running = ref(false)
 const result = ref(null)
 const error = ref('')
-const lightboxSrc = ref(null)
+const lightbox = ref(null)
 const fileInput = ref(null)
 const progressPct = ref(0)
 const progressDetail = ref('')
@@ -128,7 +126,7 @@ const defectLegend = Object.entries(defectColors).map(([type, color]) => ({ type
 function defectColor(type) { return defectColors[type] || '#999' }
 
 function onPageClick(e) {
-  if (e.target.tagName === 'IMG' && e.target.src.startsWith('data:image')) lightboxSrc.value = e.target.src
+  if (e.target.tagName === 'IMG' && e.target.src.startsWith('data:image')) lightbox.value?.show(e.target.src)
 }
 
 function onFilesChange(e) {
@@ -140,21 +138,7 @@ function onDrop(e) {
 function clearAll() { imgs.value = []; result.value = null; error.value = ''; progressPct.value = 0 }
 
 function formatReport(text) {
-  if (!text) return ''
-  // 清除旧记录可能残留的 HTML 标签（标注图已由 Gallery 独立展示）
-  let html = text.replace(/<div[^>]*>/gi, '').replace(/<\/div>/gi, '')
-  html = html.replace(/<img[^>]*>/gi, '')
-  // 转义 & 保留输出
-  html = html.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-  // Markdown → HTML
-  html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>')
-  html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>')
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-  html = html.replace(/((?:^- .+\n?)+)/gm, m => '<ul>' + m.trim().split('\n').map(l => '<li>'+l.replace(/^- /,'')+'</li>').join('') + '</ul>')
-  html = html.replace(/((?:^\d+\. .+\n?)+)/gm, m => '<ol>' + m.trim().split('\n').map(l => '<li>'+l.replace(/^\d+\. /,'')+'</li>').join('') + '</ol>')
-  html = html.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>')
-  html = '<p>' + html + '</p>'
-  return html.replace(/<p><\/p>/g, '').replace(/<p>(<[ou]l>)/g, '$1').replace(/(<\/[ou]l>)<\/p>/g, '$1')
+  return renderMarkdown(text, { stripHtml: true })
 }
 
 async function runInspection() {
@@ -270,12 +254,6 @@ async function runInspection() {
 /* 报告 */
 .report-card { background: #fff; border-radius: 16px; padding: 28px; border: 1px solid #e8e2d8; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
 .report-body { color: #4a4238; font-size: 15px; line-height: 2; }
-
-/* 灯箱 */
-.img-lightbox { position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; z-index: 9999; cursor: pointer; }
-.lightbox-close { position: fixed; top: 20px; right: 24px; color: #fff; font-size: 32px; font-weight: 300; cursor: pointer; z-index: 10000; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.4); border-radius: 50%; }
-.lightbox-close:hover { background: rgba(0,0,0,0.6); }
-.img-lightbox img { max-width: 85vw; max-height: 85vh; border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,0.4); cursor: default; }
 
 .error-box { color: #c97b7b; margin-top: 14px; padding: 14px; background: #fdf2f2; border-radius: 12px; border: 1px solid #f0d0d0; }
 

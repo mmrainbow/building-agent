@@ -1,7 +1,5 @@
 """Agent 上下文构建 — System Prompt、消息组装、历史转换。"""
 
-import re
-
 # ── System Prompt ─────────────────────────────────────────
 
 SYSTEM_PROMPT = """你是建筑外立面巡检 Manager Agent，负责协调多个专业工具完成巡检任务。
@@ -55,11 +53,6 @@ SYSTEM_PROMPT = """你是建筑外立面巡检 Manager Agent，负责协调多�
 
 
 # ── 辅助函数 ──────────────────────────────────────────────
-
-
-def strip_base64_for_llm(text: str) -> str:
-    """移除 base64 图片数据避免撑爆 LLM 上下文。"""
-    return re.sub(r'data:image[^"\')\s]+', 'data:image/...', text)
 
 
 def make_user_message(text: str, image_count: int = 0) -> dict:

@@ -108,10 +108,7 @@
     </el-drawer>
 
     <!-- 图片灯箱 -->
-    <div class="img-lightbox" v-if="lightboxSrc" @click="lightboxSrc = null">
-      <span class="lightbox-close">×</span>
-      <img :src="lightboxSrc" @click.stop />
-    </div>
+    <ImgLightbox ref="lightbox" />
 
     <el-dialog v-model="feedbackDialog.visible" title="补充反馈意见" width="420px">
       <el-form label-position="top">
@@ -143,6 +140,8 @@ import { ElMessage } from 'element-plus'
 import { chatAPI } from '../api/chat'
 import client from '../api/index'
 import CoTPanel from '../components/CoTPanel.vue'
+import ImgLightbox from '../components/ImgLightbox.vue'
+import { renderMarkdown, isHtmlContent } from '../utils/markdown'
 
 const conversations = ref([])
 const currentId = ref(null)
@@ -153,7 +152,7 @@ const streamSteps = ref([])
 const imgFiles = ref([])
 const imgPreviews = ref([])
 const chatBox = ref(null)
-const lightboxSrc = ref(null)
+const lightbox = ref(null)
 const feedbackDialog = ref({
   visible: false,
   message: null,
@@ -164,7 +163,7 @@ const feedbackDialog = ref({
 
 function onChatClick(e) {
   if (e.target.tagName === 'IMG' && e.target.src.startsWith('data:image')) {
-    lightboxSrc.value = e.target.src
+    lightbox.value?.show(e.target.src)
   }
 }
 
@@ -221,8 +220,8 @@ async function switchConv(id) {
           ? Array.from({length: meta.image_count || 1}, (_, i) => `/api/chat/images/${m.id}?idx=${i}`)
           : null,
         toolCalls: meta.tool_calls || null,
-        feedbackRating: null,
-        feedbackSubmitted: false,
+        feedbackRating: m.feedback?.rating || null,
+        feedbackSubmitted: !!m.feedback,
         feedbackSubmitting: false,
       }
       msgs.push(msg)
@@ -251,38 +250,6 @@ async function delConv() {
   newConv()
 }
 // 将 Markdown 图片语法转为 HTML img 标签，同时清理模型幻觉产生的无效 base64
-function renderMarkdown(text) {
-  if (!text) return text
-  let html = text
-  // 清理 <div> 容器（图片应由 <img> 直接展示）和裸 base64
-  html = html.replace(/<\/?div[^>]*>/gi, '')
-  html = html.replace(/!\[.*?\]\(data:image[^)]*(?:\))?/g, '')
-  html = html.replace(/(?<!<img[^>]*?)data:image\S+/g, '')
-  // 转义 HTML（保留 <img>）
-  const imgs = []; html = html.replace(/<img[^>]+>/gi, m => { imgs.push(m); return `\x00IMG${imgs.length-1}\x00` })
-  html = html.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-  html = html.replace(/\x00IMG(\d+)\x00/g, (_,i) => imgs[+i])
-  // Markdown → HTML
-  html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>')
-  html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>')
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-  // 列表: 连续的 - 条目 → <ul>, 连续的 1. 条目 → <ol>
-  html = html.replace(/((?:^- .+\n?)+)/gm, m => '<ul>' + m.trim().split('\n').map(l => '<li>'+l.replace(/^- /,'')+'</li>').join('') + '</ul>')
-  html = html.replace(/((?:^\d+\. .+\n?)+)/gm, m => '<ol>' + m.trim().split('\n').map(l => '<li>'+l.replace(/^\d+\. /,'')+'</li>').join('') + '</ol>')
-  // 空行分段，单换行 → <br>
-  html = html.replace(/\n\n+/g, '</p><p>')
-  html = html.replace(/\n/g, '<br>')
-  html = '<p>' + html + '</p>'
-  // 清理空段落
-  html = html.replace(/<p><\/p>/g, '')
-  html = html.replace(/<p>(<[ou]l>)/g, '$1')
-  html = html.replace(/(<\/[ou]l>)<\/p>/g, '$1')
-  return html
-}
-function isHtmlContent(text) {
-  return /<img|<div|<pre|<p|<[ou]l|<h[1-4]|!\[/i.test(text || '')
-}
-
 function onFileChange(e) {
   for (const f of e.target.files) {
     if (f.type.startsWith('image/')) {
@@ -600,27 +567,6 @@ async function submitFeedbackDialog() {
   margin-bottom: 6px;
 }
 .thinking-hint { color: #b8906a; font-size: 13px; padding: 8px; }
-
-/* ── 图片灯箱 ── */
-.img-lightbox {
-  position: fixed; top: 0; right: 0; bottom: 0; left: 0;
-  background: rgba(0,0,0,0.75);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 9999; cursor: pointer;
-}
-.lightbox-close {
-  position: fixed; top: 20px; right: 24px;
-  color: #fff; font-size: 32px; font-weight: 300;
-  cursor: pointer; z-index: 10000;
-  width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.4); border-radius: 50%;
-}
-.lightbox-close:hover { background: rgba(0,0,0,0.6); }
-.img-lightbox img {
-  max-width: 85vw; max-height: 85vh;
-  border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,0.4);
-  cursor: default;
-}
 
 /* ── 动画 ── */
 .mem-btn { --el-button-bg-color: #f0ebe3; --el-button-border-color: #e0d9ce; }

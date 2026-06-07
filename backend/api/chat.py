@@ -177,6 +177,7 @@ def conversation_detail(
                     "role": m.role,
                     "content": m.content,
                     "metadata": m.metadata_,
+                    "feedback": _format_feedback(m.feedbacks[0]) if m.feedbacks else None,
                     "created_at": m.created_at.isoformat() if m.created_at else None,
                 }
                 for m in msgs
@@ -393,6 +394,12 @@ async def chat_send_stream(
             db.close()
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+def _format_feedback(fb) -> dict | None:
+    if fb is None:
+        return None
+    return {"id": fb.id, "rating": fb.rating, "comment": fb.comment}
 
 
 # ── Memory 管理 ────────────────────────────────────────────
