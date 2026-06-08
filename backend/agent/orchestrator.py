@@ -78,8 +78,6 @@ class ManagerAgent:
         db: Any,
         images=None,
         image_blobs: list[bytes] | None = None,
-        recent_messages: list | None = None,
-        memories: list | None = None,
         on_step: Callable | None = None,
     ) -> dict:
         """执行一次完整的 Agent 对话轮次。
@@ -91,8 +89,6 @@ class ManagerAgent:
             db: SQLAlchemy Session
             images: 可选的 numpy 图像数组列表（多图支持）
             image_blobs: JPEG 字节列表，与 images 一一对应
-            recent_messages: 最近历史消息；为 None 时由 build_context 自动拉取
-            memories: 长期记忆；为 None 时由 build_context 自动拉取
 
         Returns:
             {
@@ -102,15 +98,10 @@ class ManagerAgent:
                 "usage": dict,            # token 用量总计
             }
         """
-        # 1. 聊前上下文（未传入时隐式组装）
-        if recent_messages is None or memories is None:
-            ctx = self.memory_manager.build_context(
-                db, user_id, conversation_id, message
-            )
-            if recent_messages is None:
-                recent_messages = ctx["recent_messages"]
-            if memories is None:
-                memories = ctx["memories"]
+        # 1. 聊前上下文
+        ctx = self.memory_manager.build_context(db, user_id, conversation_id, message)
+        recent_messages = ctx["recent_messages"]
+        memories = ctx["memories"]
 
         # 2. 组装消息列表
         system_content = SYSTEM_PROMPT
@@ -268,18 +259,24 @@ class ManagerAgent:
     ) -> int | None:
         """保存本轮对话到 ChatMessage 表。user_msg_id 非空时跳过用户消息创建。"""
         if user_msg_id:
-            # 用户消息+图片已预创建，更新消息计数
+            # 用户消息+图片已预创建，补计 1 条（助手消息由 add_message 自增）
             from db.models import Conversation
             conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
             if conv:
-                conv.message_count = (conv.message_count or 0) + 2  # user + assistant
+                conv.message_count = (conv.message_count or 0) + 1
                 db.commit()
         else:
             from db.chat_crud import add_message
             add_message(db, conversation_id, "user", user_msg)
         if assistant_msg:
             from db.chat_crud import add_message
-            meta = {"tool_calls": tool_log} if tool_log else None
+            meta = {"tool_calls": tool_log} if tool_log else {}
+            # 提取 <img> 标签存入 metadata — 正文剥离入库，图片不丢
+            imgs = re.findall(r'<img[^>]+src="data:image[^"]+"[^>]*>', assistant_msg)
+            if imgs:
+                meta["annotated_images"] = imgs
+            if not meta:
+                meta = None
             msg = add_message(
                 db,
                 conversation_id,
@@ -310,12 +307,6 @@ class ManagerAgent:
             if n > 0:
                 print(f"[Memory] 本轮提取 {n} 条记忆")
 
-            # 异步触发反思（≥20条记忆时）
-            try:
-                from agent.memory_reflection import maybe_reflect
-                maybe_reflect(db, user_id, conversation_id)
-            except Exception:
-                pass
         else:
             total_chars = sum(len(getattr(m, "content", "") or "") for m in recent)
             threshold = int(os.getenv("MEMORY_EXTRACT_THRESHOLD", "6000"))

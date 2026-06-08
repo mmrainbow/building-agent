@@ -3,7 +3,7 @@
 import base64
 import io
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -137,6 +137,17 @@ def history(
     else:
         records = get_user_records(db, user["user_id"], limit=limit, offset=offset)
     return [_record_to_dict(record) for record in records]
+
+
+@router.delete("/history/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_record(
+    record_id: int,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    record = _safe_record_or_404(record_id, user, db)
+    db.delete(record)
+    db.commit()
 
 
 @router.get("/history/{record_id}", response_model=RecordResponse)

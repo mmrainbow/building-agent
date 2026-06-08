@@ -10,7 +10,6 @@
     USE_LOCAL_LLM=false       Manager 使用远程 API (默认)
     LLM_API_KEY               DashScope API 密钥
     LLM_MODEL                 Manager 模型 (默认 qwen3.6-flash)
-    LLM_TOOL_CALL_MODE        Manager 工具调用: native (默认)
     REPORT_AGENT_URL          Report Agent 地址 (默认 http://localhost:8000)
 """
 
@@ -24,35 +23,28 @@ _agent: ManagerAgent | None = None
 
 
 def _is_local_llm_enabled() -> bool:
-    """检查是否启用本地 LLM 作为 Manager。默认 false (使用远程 API)。"""
     val = os.getenv("USE_LOCAL_LLM", "false").lower()
     return val in ("true", "1", "yes", "on")
 
 
 def _create_llm_client() -> LLMClient:
-    """创建 Manager Agent 的 LLMClient。"""
     if _is_local_llm_enabled():
-        # 单 Agent 模式: 本地模型同时做推理和报告 (不推荐)
         api_key = os.getenv("LLM_API_KEY", "not-needed")
         base_url = os.getenv("LLM_BASE_URL", "http://localhost:8000/v1")
         model = os.getenv("LLM_MODEL", "qwen2.5-vl-building")
-        mode = os.getenv("LLM_TOOL_CALL_MODE", "prompt")
-        print(f"[AgentFactory] Manager: 本地模型 {base_url} tool_mode={mode}")
-        return LLMClient(api_key=api_key, base_url=base_url, model=model, tool_call_mode=mode)
+        print(f"[AgentFactory] Manager: 本地模型 {base_url}")
+        return LLMClient(api_key=api_key, base_url=base_url, model=model)
     else:
-        # 多 Agent 模式: Manager 使用远程 API + Report Agent 处理报告
         print(f"[AgentFactory] Manager: 远程 API (Report Agent @ {os.getenv('REPORT_AGENT_URL', 'http://localhost:8000')})")
-        return LLMClient(tool_call_mode="native")
+        return LLMClient()
 
 
 def reset_agent() -> None:
-    """重置 Agent 单例 (切换 LLM 后端后调用)。"""
     global _agent
     _agent = None
 
 
 def get_chat_agent() -> ManagerAgent:
-    """获取共享的 ManagerAgent 单例。"""
     global _agent
     if _agent is None:
         _agent = ManagerAgent(_create_llm_client())

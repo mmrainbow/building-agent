@@ -133,7 +133,9 @@ def _retrieve_memories_ranked(db, user_id, conversation_id, query, k=5) -> list:
                 rel = score_map.get(m.id, 0.5)
                 days = max((now - (m.created_at or now)).days, 0)
                 rec = max(1.0 - days / 30.0, 0.0)
-                imp = (m.importance or 0.5)
+                imp = m.importance if m.importance is not None else 5
+                if imp > 1:
+                    imp = imp / 10.0  # 归一化: 旧数据 0-1, 新数据 1-10
                 m._score = 0.3 * rec + 0.5 * rel + 0.2 * imp
             return sorted(memories, key=lambda m: getattr(m, "_score", 0), reverse=True)[:k]
     except Exception as e:

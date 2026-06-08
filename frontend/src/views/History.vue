@@ -19,8 +19,13 @@
       <el-table-column label="时间" width="170">
         <template #default="{row}">{{ row.created_at?.slice(0,16)?.replace('T',' ') }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="170">
+      <el-table-column label="操作" width="220">
         <template #default="{row}">
+          <el-popconfirm title="确定删除该记录？" @confirm="delRecord(row.id)">
+            <template #reference>
+              <el-button size="small" type="danger" text @click.stop>删除</el-button>
+            </template>
+          </el-popconfirm>
           <el-dropdown @command="(format) => exportFile(row.id, format)" @click.stop>
             <el-button size="small" class="export-btn">导出报告</el-button>
             <template #dropdown>
@@ -118,6 +123,13 @@ function renderReport(text) {
 }
 async function exportFile(id, format) {
   try { await historyAPI.exportFile(id, format) } catch(e) { ElMessage.error('导出失败') }
+}
+async function delRecord(id) {
+  try {
+    await client.delete(`/history/${id}`)
+    records.value = records.value.filter(r => r.id !== id)
+    ElMessage.success('已删除')
+  } catch(e) { ElMessage.error('删除失败') }
 }
 
 onMounted(load)

@@ -211,11 +211,15 @@ async function switchConv(id) {
     const msgs = []
     for (const m of data.messages) {
       const meta = m.metadata || {}
+      // 从 metadata 恢复标注图（切换对话时图片不丢）
+      let aiHtml = m.role === 'assistant' && (isHtmlContent(m.content) || meta.annotated_images?.length)
+        ? (meta.annotated_images || []).join('') + renderMarkdown(m.content || '')
+        : null
       const msg = {
         id: m.id,
         role: m.role,
         content: m.content || '',
-        html: m.role === 'assistant' && isHtmlContent(m.content) ? renderMarkdown(m.content) : null,
+        html: aiHtml,
         images: meta.has_image && meta.image_count > 0
           ? Array.from({length: meta.image_count}, (_, i) => `/api/chat/images/${m.id}?idx=${i}`)
           : null,

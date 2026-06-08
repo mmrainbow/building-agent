@@ -26,7 +26,7 @@ os.environ["INSPECTION_DB_URL"] = "sqlite:///:memory:"
 
 from db.models import Base  # noqa: E402
 from db.database import SessionLocal, engine  # noqa: E402
-from db.crud import create_user  # noqa: E402
+from db.crud_user import create_user  # noqa: E402
 from db.chat_crud import create_conversation  # noqa: E402
 from llm.client import LLMClient  # noqa: E402
 from llm.tools import build_tools  # noqa: E402
