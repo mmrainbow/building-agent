@@ -122,11 +122,12 @@ def _retrieve_memories_ranked(db, user_id, conversation_id, query, k=5) -> list:
     from datetime import datetime, timezone
     try:
         from agent.rag import search_memories_semantic
-        semantic = search_memories_semantic(query, user_id, conversation_id, k=10)
+        semantic = search_memories_semantic(query, user_id, conversation_id, k=10)  #用户的当前问题 → Embedding → ChromaDB 相似度搜索 → 返回最像的 10 条记忆。
+                                                                                    #每条带 memory_id 和 relevance（0-1 的语义相似度）。
         if semantic:
             from db.models import ConversationMemory
             ids = [s["memory_id"] for s in semantic]
-            score_map = {s["memory_id"]: s["relevance"] for s in semantic}
+            score_map = {s["memory_id"]: s["relevance"] for s in semantic}  #转字典
             memories = db.query(ConversationMemory).filter(ConversationMemory.id.in_(ids)).all()
             now = datetime.now(timezone.utc)
             for m in memories:
